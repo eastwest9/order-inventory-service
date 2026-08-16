@@ -1,4 +1,4 @@
-package com.eastwest9.order_inventory_service;
+package com.eastwest9.orderinventory;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -6,8 +6,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 @SpringBootApplication
 public class OrderInventoryServiceApplication {
 
-	public static void main(String[] args) {
-		SpringApplication.run(OrderInventoryServiceApplication.class, args);
-	}
-
+    public static void main(String[] args) {
+        SpringApplication.run(OrderInventoryServiceApplication.class, args);
+    }
 }
