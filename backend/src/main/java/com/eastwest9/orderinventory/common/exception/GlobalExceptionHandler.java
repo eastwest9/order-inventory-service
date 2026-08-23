@@ -1,7 +1,11 @@
 package com.eastwest9.orderinventory.common.exception;
 
+import com.eastwest9.orderinventory.inventory.exception.DuplicateInventoryException;
+import com.eastwest9.orderinventory.inventory.exception.InvalidInventoryQuantityException;
+import com.eastwest9.orderinventory.inventory.exception.InventoryNotFoundException;
 import com.eastwest9.orderinventory.product.exception.DuplicateSkuCodeException;
 import com.eastwest9.orderinventory.product.exception.ProductNotFoundException;
+import com.eastwest9.orderinventory.product.exception.ProductVariantNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -36,6 +40,62 @@ public class GlobalExceptionHandler {
 
         return ResponseEntity
                 .status(HttpStatus.CONFLICT)
+                .body(response);
+    }
+
+    @ExceptionHandler(ProductVariantNotFoundException.class)
+    public ResponseEntity<ErrorResponseDto> handleProductVariantNotFound(
+            ProductVariantNotFoundException exception
+    ) {
+        ErrorResponseDto response = ErrorResponseDto.of(
+                "PRODUCT_VARIANT_NOT_FOUND",
+                exception.getMessage()
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(response);
+    }
+
+    @ExceptionHandler(InventoryNotFoundException.class)
+    public ResponseEntity<ErrorResponseDto> handleInventoryNotFound(
+            InventoryNotFoundException exception
+    ) {
+        ErrorResponseDto response = ErrorResponseDto.of(
+                "INVENTORY_NOT_FOUND",
+                exception.getMessage()
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(response);
+    }
+
+    @ExceptionHandler(DuplicateInventoryException.class)
+    public ResponseEntity<ErrorResponseDto> handleDuplicateInventory(
+            DuplicateInventoryException exception
+    ) {
+        ErrorResponseDto response = ErrorResponseDto.of(
+                "DUPLICATE_INVENTORY",
+                exception.getMessage()
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(response);
+    }
+
+    @ExceptionHandler(InvalidInventoryQuantityException.class)
+    public ResponseEntity<ErrorResponseDto> handleInvalidInventoryQuantity(
+            InvalidInventoryQuantityException exception
+    ) {
+        ErrorResponseDto response = ErrorResponseDto.of(
+                "INVALID_INVENTORY_QUANTITY",
+                exception.getMessage()
+        );
+
+        return ResponseEntity
+                .badRequest()
                 .body(response);
     }
 
