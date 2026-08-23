@@ -1,5 +1,6 @@
 package com.eastwest9.orderinventory.product.domain;
 
+import com.eastwest9.orderinventory.common.persistence.BaseTimeEntity;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -13,11 +14,6 @@ import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.SourceType;
-import org.hibernate.annotations.UpdateTimestamp;
-
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -25,7 +21,7 @@ import java.util.List;
 @Table(name = "product")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class Product {
+public class Product extends BaseTimeEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -44,14 +40,6 @@ public class Product {
             cascade = CascadeType.PERSIST
     )
     private final List<ProductVariant> variants = new ArrayList<>();
-
-    @CreationTimestamp(source = SourceType.DB)
-    @Column(name = "created_at", nullable = false)
-    private LocalDateTime createdAt;
-
-    @UpdateTimestamp(source = SourceType.DB)
-    @Column(name = "updated_at", nullable = false)
-    private LocalDateTime updatedAt;
 
     public Product(String name, ProductStatus status) {
         validateName(name);
