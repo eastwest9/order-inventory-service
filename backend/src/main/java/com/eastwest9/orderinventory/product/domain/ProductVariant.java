@@ -1,5 +1,6 @@
 package com.eastwest9.orderinventory.product.domain;
 
+import com.eastwest9.orderinventory.common.persistence.BaseTimeEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -14,18 +15,13 @@ import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.SourceType;
-import org.hibernate.annotations.UpdateTimestamp;
-
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "product_variant")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class ProductVariant {
+public class ProductVariant extends BaseTimeEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -53,14 +49,6 @@ public class ProductVariant {
     @Enumerated(EnumType.STRING)
     @Column(name = "variant_status", nullable = false, length = 20)
     private ProductVariantStatus status;
-
-    @CreationTimestamp(source = SourceType.DB)
-    @Column(name = "created_at", nullable = false)
-    private LocalDateTime createdAt;
-
-    @UpdateTimestamp(source = SourceType.DB)
-    @Column(name = "updated_at", nullable = false)
-    private LocalDateTime updatedAt;
 
     public ProductVariant(
             String skuCode,
