@@ -1,0 +1,14 @@
+package com.eastwest9.orderinventory.inventory.dto;
+
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
+
+public record InventoryCreateRequestDto(
+        @NotNull(message = "상품 SKU ID는 필수입니다.")
+        Long variantId,
+
+        @NotNull(message = "초기 재고 수량은 필수입니다.")
+        @Min(value = 0, message = "초기 재고 수량은 0 이상이어야 합니다.")
+        Integer initialQuantity
+) {
+}
