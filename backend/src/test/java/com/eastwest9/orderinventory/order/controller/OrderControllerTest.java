@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.eastwest9.orderinventory.common.exception.GlobalExceptionHandler;
+import com.eastwest9.orderinventory.inventory.exception.InsufficientInventoryException;
 import com.eastwest9.orderinventory.member.exception.MemberNotFoundException;
 import com.eastwest9.orderinventory.order.domain.OrderStatus;
 import com.eastwest9.orderinventory.order.dto.OrderCreateRequestDto;
@@ -145,6 +146,21 @@ class OrderControllerTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code")
                         .value("PRODUCT_VARIANT_NOT_ORDERABLE"));
+    }
+
+    @Test
+    void 재고가_부족하면_409를_반환한다() throws Exception {
+        given(orderService.createOrder(any(OrderCreateRequestDto.class)))
+                .willThrow(new InsufficientInventoryException(10L, 2, 1));
+
+        mockMvc.perform(
+                        post("/api/orders")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(validCreateRequest())
+                )
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code")
+                        .value("INSUFFICIENT_INVENTORY"));
     }
 
     @Test

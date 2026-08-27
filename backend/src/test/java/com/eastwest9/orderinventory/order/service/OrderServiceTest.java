@@ -8,6 +8,15 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+
+import com.eastwest9.orderinventory.inventory.domain.Inventory;
+import com.eastwest9.orderinventory.inventory.domain.InventoryChangeType;
+import com.eastwest9.orderinventory.inventory.domain.InventoryHistory;
+import com.eastwest9.orderinventory.inventory.exception.InsufficientInventoryException;
+import com.eastwest9.orderinventory.inventory.exception.InventoryNotFoundException;
+import com.eastwest9.orderinventory.inventory.repository.InventoryHistoryRepository;
+import com.eastwest9.orderinventory.inventory.repository.InventoryRepository;
 
 import com.eastwest9.orderinventory.member.domain.Member;
 import com.eastwest9.orderinventory.member.exception.MemberNotFoundException;
@@ -37,8 +46,10 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
 class OrderServiceTest {
@@ -51,6 +62,12 @@ class OrderServiceTest {
 
     @Mock
     private ProductVariantRepository productVariantRepository;
+
+    @Mock
+    private InventoryRepository inventoryRepository;
+
+    @Mock
+    private InventoryHistoryRepository inventoryHistoryRepository;
 
     @InjectMocks
     private OrderService orderService;
@@ -74,7 +91,12 @@ class OrderServiceTest {
         given(productVariantRepository.findAllById(anyList()))
                 .willReturn(List.of(variant));
         given(orderRepository.save(any(Order.class)))
-                .willAnswer(invocation -> invocation.getArgument(0));
+                .willAnswer(invocation -> assignOrderItemIds(
+                        invocation.getArgument(0)
+                ));
+        Inventory inventory = new Inventory(variant, 100);
+        given(inventoryRepository.findByProductVariant_Id(10L))
+                .willReturn(Optional.of(inventory));
 
         OrderResponseDto response = orderService.createOrder(request);
 
@@ -86,6 +108,17 @@ class OrderServiceTest {
         assertThat(response.items().get(0).productName())
                 .isEqualTo("테스트 상품");
         verify(orderRepository).save(any(Order.class));
+        assertThat(inventory.getQuantity()).isEqualTo(98);
+
+        ArgumentCaptor<InventoryHistory> historyCaptor =
+                ArgumentCaptor.forClass(InventoryHistory.class);
+        verify(inventoryHistoryRepository).save(historyCaptor.capture());
+        InventoryHistory history = historyCaptor.getValue();
+        assertThat(history.getOrderItemId()).isEqualTo(100L);
+        assertThat(history.getChangeType()).isEqualTo(InventoryChangeType.ORDER);
+        assertThat(history.getBeforeQuantity()).isEqualTo(100);
+        assertThat(history.getAfterQuantity()).isEqualTo(98);
+        assertThat(history.getChangeQuantity()).isEqualTo(-2);
     }
 
     @Test
@@ -109,7 +142,15 @@ class OrderServiceTest {
         given(productVariantRepository.findAllById(anyList()))
                 .willReturn(List.of(second, first));
         given(orderRepository.save(any(Order.class)))
-                .willAnswer(invocation -> invocation.getArgument(0));
+                .willAnswer(invocation -> assignOrderItemIds(
+                        invocation.getArgument(0)
+                ));
+        Inventory firstInventory = new Inventory(first, 10);
+        Inventory secondInventory = new Inventory(second, 20);
+        given(inventoryRepository.findByProductVariant_Id(10L))
+                .willReturn(Optional.of(firstInventory));
+        given(inventoryRepository.findByProductVariant_Id(20L))
+                .willReturn(Optional.of(secondInventory));
 
         OrderResponseDto response = orderService.createOrder(request);
 
@@ -118,6 +159,19 @@ class OrderServiceTest {
                 .extracting(item -> item.variantId())
                 .containsExactly(10L, 20L);
         assertThat(response.totalAmount()).isEqualByComparingTo("27501.50");
+        assertThat(firstInventory.getQuantity()).isEqualTo(8);
+        assertThat(secondInventory.getQuantity()).isEqualTo(17);
+
+        ArgumentCaptor<InventoryHistory> historyCaptor =
+                ArgumentCaptor.forClass(InventoryHistory.class);
+        verify(inventoryHistoryRepository, org.mockito.Mockito.times(2))
+                .save(historyCaptor.capture());
+        assertThat(historyCaptor.getAllValues())
+                .extracting(InventoryHistory::getOrderItemId)
+                .containsExactly(100L, 101L);
+        assertThat(historyCaptor.getAllValues())
+                .extracting(InventoryHistory::getChangeQuantity)
+                .containsExactly(-2, -3);
     }
 
     @Test
@@ -244,12 +298,29 @@ class OrderServiceTest {
     @Test
     void 주문을_취소한다() {
         Order order = createOrder();
+        Inventory inventory = new Inventory(
+                order.getItems().get(0).getProductVariant(),
+                7
+        );
         given(orderRepository.findById(1L)).willReturn(Optional.of(order));
+        given(inventoryRepository.findByProductVariant_Id(10L))
+                .willReturn(Optional.of(inventory));
 
         OrderResponseDto response = orderService.cancelOrder(1L);
 
         assertThat(response.status()).isEqualTo(OrderStatus.CANCELED);
         assertThat(response.canceledAt()).isNotNull();
+        assertThat(inventory.getQuantity()).isEqualTo(8);
+        ArgumentCaptor<InventoryHistory> historyCaptor =
+                ArgumentCaptor.forClass(InventoryHistory.class);
+        verify(inventoryHistoryRepository).save(historyCaptor.capture());
+        InventoryHistory history = historyCaptor.getValue();
+        assertThat(history.getOrderItemId()).isEqualTo(100L);
+        assertThat(history.getChangeType())
+                .isEqualTo(InventoryChangeType.ORDER_CANCEL);
+        assertThat(history.getBeforeQuantity()).isEqualTo(7);
+        assertThat(history.getAfterQuantity()).isEqualTo(8);
+        assertThat(history.getChangeQuantity()).isEqualTo(1);
         verify(orderRepository).flush();
         verify(orderRepository, never()).save(any(Order.class));
     }
@@ -265,6 +336,75 @@ class OrderServiceTest {
 
         verify(orderRepository, never()).flush();
         verify(orderRepository, never()).save(any(Order.class));
+        verifyNoInteractions(inventoryRepository, inventoryHistoryRepository);
+    }
+
+    @Test
+    void 재고가_없는_SKU는_주문할_수_없다() {
+        ProductVariant variant = createVariant(
+                10L, ProductStatus.ON_SALE, ProductVariantStatus.ON_SALE,
+                "테스트 상품", "기본 옵션", "10000"
+        );
+        stubOrderCreationDependencies(variant);
+        given(orderRepository.save(any(Order.class)))
+                .willAnswer(invocation -> assignOrderItemIds(
+                        invocation.getArgument(0)
+                ));
+        given(inventoryRepository.findByProductVariant_Id(10L))
+                .willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> orderService.createOrder(createRequest(
+                new OrderItemCreateRequestDto(10L, 1)
+        )))
+                .isInstanceOf(InventoryNotFoundException.class);
+
+        verifyNoInteractions(inventoryHistoryRepository);
+    }
+
+    @Test
+    void 재고가_부족하면_예외가_발생하고_이후_항목을_처리하지_않는다() {
+        ProductVariant first = createVariant(
+                10L, ProductStatus.ON_SALE, ProductVariantStatus.ON_SALE,
+                "첫 상품", "첫 옵션", "10000"
+        );
+        ProductVariant second = createVariant(
+                20L, ProductStatus.ON_SALE, ProductVariantStatus.ON_SALE,
+                "둘째 상품", "둘째 옵션", "20000"
+        );
+        Member member = createMember(1L);
+        given(memberRepository.findById(1L))
+                .willReturn(Optional.of(member));
+        given(productVariantRepository.findAllById(anyList()))
+                .willReturn(List.of(first, second));
+        given(orderRepository.save(any(Order.class)))
+                .willAnswer(invocation -> assignOrderItemIds(
+                        invocation.getArgument(0)
+                ));
+        given(inventoryRepository.findByProductVariant_Id(10L))
+                .willReturn(Optional.of(new Inventory(first, 1)));
+
+        assertThatThrownBy(() -> orderService.createOrder(createRequest(
+                new OrderItemCreateRequestDto(10L, 2),
+                new OrderItemCreateRequestDto(20L, 1)
+        )))
+                .isInstanceOf(InsufficientInventoryException.class);
+
+        verify(inventoryRepository, never()).findByProductVariant_Id(20L);
+        verifyNoInteractions(inventoryHistoryRepository);
+    }
+
+    @Test
+    void 주문_취소_중_재고가_없으면_예외를_전파한다() {
+        Order order = createOrder();
+        given(orderRepository.findById(1L)).willReturn(Optional.of(order));
+        given(inventoryRepository.findByProductVariant_Id(10L))
+                .willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> orderService.cancelOrder(1L))
+                .isInstanceOf(InventoryNotFoundException.class);
+
+        verify(orderRepository, never()).flush();
+        verifyNoInteractions(inventoryHistoryRepository);
     }
 
     private void stubOrderCreationDependencies(ProductVariant variant) {
@@ -286,10 +426,18 @@ class OrderServiceTest {
                 10L, ProductStatus.ON_SALE, ProductVariantStatus.ON_SALE,
                 "테스트 상품", "기본 옵션", "10000"
         );
-        return new Order(
+        return assignOrderItemIds(new Order(
                 createMember(1L),
                 List.of(new OrderItem(variant, 1))
-        );
+        ));
+    }
+
+    private Order assignOrderItemIds(Order order) {
+        long orderItemId = 100L;
+        for (OrderItem item : order.getItems()) {
+            ReflectionTestUtils.setField(item, "id", orderItemId++);
+        }
+        return order;
     }
 
     private Member createMember(Long id) {
