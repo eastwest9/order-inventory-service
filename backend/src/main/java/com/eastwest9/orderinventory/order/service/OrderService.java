@@ -1,5 +1,10 @@
 package com.eastwest9.orderinventory.order.service;
 
+import com.eastwest9.orderinventory.inventory.domain.Inventory;
+import com.eastwest9.orderinventory.inventory.domain.InventoryHistory;
+import com.eastwest9.orderinventory.inventory.exception.InventoryNotFoundException;
+import com.eastwest9.orderinventory.inventory.repository.InventoryHistoryRepository;
+import com.eastwest9.orderinventory.inventory.repository.InventoryRepository;
 import com.eastwest9.orderinventory.member.domain.Member;
 import com.eastwest9.orderinventory.member.exception.MemberNotFoundException;
 import com.eastwest9.orderinventory.member.repository.MemberRepository;
@@ -36,6 +41,8 @@ public class OrderService {
     private final OrderRepository orderRepository;
     private final MemberRepository memberRepository;
     private final ProductVariantRepository productVariantRepository;
+    private final InventoryRepository inventoryRepository;
+    private final InventoryHistoryRepository inventoryHistoryRepository;
 
     @Transactional
     public OrderResponseDto createOrder(OrderCreateRequestDto request) {
@@ -54,6 +61,10 @@ public class OrderService {
 
         Order order = new Order(member, orderItems);
         Order savedOrder = orderRepository.save(order);
+
+        for (OrderItem item : savedOrder.getItems()) {
+            decreaseInventory(item);
+        }
 
         return OrderResponseDto.from(savedOrder);
     }
@@ -74,9 +85,51 @@ public class OrderService {
         Order order = findOrder(orderId);
 
         order.cancel(LocalDateTime.now());
+
+        for (OrderItem item : order.getItems()) {
+            restoreInventory(item);
+        }
+
         orderRepository.flush();
 
         return OrderResponseDto.from(order);
+    }
+
+    private void decreaseInventory(OrderItem item) {
+        Long variantId = item.getProductVariant().getId();
+        Inventory inventory = findInventory(variantId);
+        int beforeQuantity = inventory.getQuantity();
+
+        inventory.decrease(item.getQuantity());
+
+        InventoryHistory history = InventoryHistory.order(
+                item.getProductVariant(),
+                item.getId(),
+                beforeQuantity,
+                inventory.getQuantity()
+        );
+        inventoryHistoryRepository.save(history);
+    }
+
+    private void restoreInventory(OrderItem item) {
+        Long variantId = item.getProductVariant().getId();
+        Inventory inventory = findInventory(variantId);
+        int beforeQuantity = inventory.getQuantity();
+
+        inventory.restore(item.getQuantity());
+
+        InventoryHistory history = InventoryHistory.orderCancel(
+                item.getProductVariant(),
+                item.getId(),
+                beforeQuantity,
+                inventory.getQuantity()
+        );
+        inventoryHistoryRepository.save(history);
+    }
+
+    private Inventory findInventory(Long variantId) {
+        return inventoryRepository.findByProductVariant_Id(variantId)
+                .orElseThrow(() -> new InventoryNotFoundException(variantId));
     }
 
     private List<Long> validateAndGetUniqueVariantIds(

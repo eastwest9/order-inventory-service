@@ -1,6 +1,7 @@
 package com.eastwest9.orderinventory.common.exception;
 
 import com.eastwest9.orderinventory.inventory.exception.DuplicateInventoryException;
+import com.eastwest9.orderinventory.inventory.exception.InsufficientInventoryException;
 import com.eastwest9.orderinventory.inventory.exception.InvalidInventoryQuantityException;
 import com.eastwest9.orderinventory.inventory.exception.InventoryNotFoundException;
 import com.eastwest9.orderinventory.member.exception.MemberNotFoundException;
@@ -143,6 +144,20 @@ public class GlobalExceptionHandler {
 
         return ResponseEntity
                 .status(HttpStatus.NOT_FOUND)
+                .body(response);
+    }
+
+    @ExceptionHandler(InsufficientInventoryException.class)
+    public ResponseEntity<ErrorResponseDto> handleInsufficientInventory(
+            InsufficientInventoryException exception
+    ) {
+        ErrorResponseDto response = ErrorResponseDto.of(
+                "INSUFFICIENT_INVENTORY",
+                exception.getMessage()
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
                 .body(response);
     }
 

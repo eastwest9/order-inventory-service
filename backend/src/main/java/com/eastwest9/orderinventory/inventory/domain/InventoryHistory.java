@@ -49,11 +49,13 @@ public class InventoryHistory extends BaseCreatedEntity {
 
     private InventoryHistory(
             ProductVariant productVariant,
+            Long orderItemId,
             InventoryChangeType changeType,
             int beforeQuantity,
             int afterQuantity
     ) {
         validateProductVariant(productVariant);
+        validateOrderItemId(orderItemId, changeType);
         validateNonNegativeQuantity(beforeQuantity, "변경 전 재고 수량");
         validateNonNegativeQuantity(afterQuantity, "변경 후 재고 수량");
 
@@ -61,6 +63,7 @@ public class InventoryHistory extends BaseCreatedEntity {
         validateChangeQuantity(changeType, changeQuantity);
 
         this.productVariant = productVariant;
+        this.orderItemId = orderItemId;
         this.changeType = changeType;
         this.changeQuantity = changeQuantity;
         this.beforeQuantity = beforeQuantity;
@@ -73,6 +76,7 @@ public class InventoryHistory extends BaseCreatedEntity {
     ) {
         return new InventoryHistory(
                 productVariant,
+                null,
                 InventoryChangeType.INITIAL,
                 0,
                 initialQuantity
@@ -86,6 +90,7 @@ public class InventoryHistory extends BaseCreatedEntity {
     ) {
         return new InventoryHistory(
                 productVariant,
+                null,
                 InventoryChangeType.RECEIPT,
                 beforeQuantity,
                 afterQuantity
@@ -99,10 +104,57 @@ public class InventoryHistory extends BaseCreatedEntity {
     ) {
         return new InventoryHistory(
                 productVariant,
+                null,
                 InventoryChangeType.ADJUSTMENT,
                 beforeQuantity,
                 afterQuantity
         );
+    }
+
+    public static InventoryHistory order(
+            ProductVariant productVariant,
+            Long orderItemId,
+            int beforeQuantity,
+            int afterQuantity
+    ) {
+        return new InventoryHistory(
+                productVariant,
+                orderItemId,
+                InventoryChangeType.ORDER,
+                beforeQuantity,
+                afterQuantity
+        );
+    }
+
+    public static InventoryHistory orderCancel(
+            ProductVariant productVariant,
+            Long orderItemId,
+            int beforeQuantity,
+            int afterQuantity
+    ) {
+        return new InventoryHistory(
+                productVariant,
+                orderItemId,
+                InventoryChangeType.ORDER_CANCEL,
+                beforeQuantity,
+                afterQuantity
+        );
+    }
+
+    private void validateOrderItemId(
+            Long orderItemId,
+            InventoryChangeType changeType
+    ) {
+        boolean orderChange = changeType == InventoryChangeType.ORDER
+                || changeType == InventoryChangeType.ORDER_CANCEL;
+
+        if (orderChange && orderItemId == null) {
+            throw new IllegalArgumentException("주문 재고 이력의 주문 항목 ID는 필수입니다.");
+        }
+
+        if (!orderChange && orderItemId != null) {
+            throw new IllegalArgumentException("비주문 재고 이력에는 주문 항목 ID를 지정할 수 없습니다.");
+        }
     }
 
     private void validateProductVariant(ProductVariant productVariant) {
@@ -123,6 +175,14 @@ public class InventoryHistory extends BaseCreatedEntity {
     ) {
         if (changeType == InventoryChangeType.RECEIPT && changeQuantity < 1) {
             throw new IllegalArgumentException("입고 재고 변경 수량은 1 이상이어야 합니다.");
+        }
+
+        if (changeType == InventoryChangeType.ORDER && changeQuantity >= 0) {
+            throw new IllegalArgumentException("주문 재고 변경 수량은 음수여야 합니다.");
+        }
+
+        if (changeType == InventoryChangeType.ORDER_CANCEL && changeQuantity < 1) {
+            throw new IllegalArgumentException("주문 취소 재고 변경 수량은 양수여야 합니다.");
         }
 
         if (changeType == InventoryChangeType.ADJUSTMENT && changeQuantity == 0) {

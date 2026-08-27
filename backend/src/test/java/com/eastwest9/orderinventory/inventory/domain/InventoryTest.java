@@ -1,5 +1,7 @@
 package com.eastwest9.orderinventory.inventory.domain;
 
+import com.eastwest9.orderinventory.inventory.exception.InsufficientInventoryException;
+import com.eastwest9.orderinventory.inventory.exception.InvalidInventoryQuantityException;
 import com.eastwest9.orderinventory.product.domain.ProductVariant;
 import com.eastwest9.orderinventory.product.domain.ProductVariantStatus;
 import org.junit.jupiter.api.Test;
@@ -92,6 +94,92 @@ class InventoryTest {
         assertThatThrownBy(() -> inventory.adjust(10))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("현재 재고와 동일한 수량으로 조정할 수 없습니다.");
+    }
+
+    @Test
+    void 주문_수량만큼_재고를_차감한다() {
+        Inventory inventory = new Inventory(createProductVariant(), 10);
+
+        inventory.decrease(3);
+
+        assertThat(inventory.getQuantity()).isEqualTo(7);
+    }
+
+    @Test
+    void 재고를_전량_차감하면_0이_된다() {
+        Inventory inventory = new Inventory(createProductVariant(), 10);
+
+        inventory.decrease(10);
+
+        assertThat(inventory.getQuantity()).isZero();
+    }
+
+    @Test
+    void 주문_차감_수량은_1_이상이어야_한다() {
+        Inventory inventory = new Inventory(createProductVariant(), 10);
+
+        assertThatThrownBy(() -> inventory.decrease(0))
+                .isInstanceOf(InvalidInventoryQuantityException.class)
+                .hasMessage("주문 차감 수량은 1 이상이어야 합니다.");
+        assertThatThrownBy(() -> inventory.decrease(-1))
+                .isInstanceOf(InvalidInventoryQuantityException.class)
+                .hasMessage("주문 차감 수량은 1 이상이어야 합니다.");
+    }
+
+    @Test
+    void 재고가_부족하면_요청과_가용_수량을_포함한_예외가_발생한다() {
+        ProductVariant productVariant = createProductVariant();
+        org.springframework.test.util.ReflectionTestUtils.setField(
+                productVariant,
+                "id",
+                10L
+        );
+        Inventory inventory = new Inventory(productVariant, 2);
+
+        assertThatThrownBy(() -> inventory.decrease(3))
+                .isInstanceOfSatisfying(
+                        InsufficientInventoryException.class,
+                        exception -> {
+                            assertThat(exception.getVariantId()).isEqualTo(10L);
+                            assertThat(exception.getRequestedQuantity()).isEqualTo(3);
+                            assertThat(exception.getAvailableQuantity()).isEqualTo(2);
+                        }
+                );
+        assertThat(inventory.getQuantity()).isEqualTo(2);
+    }
+
+    @Test
+    void 주문_취소_수량만큼_재고를_복구한다() {
+        Inventory inventory = new Inventory(createProductVariant(), 7);
+
+        inventory.restore(3);
+
+        assertThat(inventory.getQuantity()).isEqualTo(10);
+    }
+
+    @Test
+    void 주문_취소_복구_수량은_1_이상이어야_한다() {
+        Inventory inventory = new Inventory(createProductVariant(), 10);
+
+        assertThatThrownBy(() -> inventory.restore(0))
+                .isInstanceOf(InvalidInventoryQuantityException.class)
+                .hasMessage("주문 취소 복구 수량은 1 이상이어야 합니다.");
+        assertThatThrownBy(() -> inventory.restore(-1))
+                .isInstanceOf(InvalidInventoryQuantityException.class)
+                .hasMessage("주문 취소 복구 수량은 1 이상이어야 합니다.");
+    }
+
+    @Test
+    void 주문_취소_복구_결과가_int_범위를_초과할_수_없다() {
+        Inventory inventory = new Inventory(
+                createProductVariant(),
+                Integer.MAX_VALUE
+        );
+
+        assertThatThrownBy(() -> inventory.restore(1))
+                .isInstanceOf(InvalidInventoryQuantityException.class)
+                .hasMessage("주문 취소 복구 후 재고 수량이 허용 범위를 초과합니다.");
+        assertThat(inventory.getQuantity()).isEqualTo(Integer.MAX_VALUE);
     }
 
     private ProductVariant createProductVariant() {
