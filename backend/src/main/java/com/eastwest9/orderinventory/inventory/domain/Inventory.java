@@ -1,6 +1,7 @@
 package com.eastwest9.orderinventory.inventory.domain;
 
 import com.eastwest9.orderinventory.common.persistence.BaseTimeEntity;
+import com.eastwest9.orderinventory.inventory.exception.InsufficientInventoryException;
 import com.eastwest9.orderinventory.inventory.exception.InvalidInventoryQuantityException;
 import com.eastwest9.orderinventory.product.domain.ProductVariant;
 import jakarta.persistence.Column;
@@ -53,6 +54,41 @@ public class Inventory extends BaseTimeEntity {
         } catch (ArithmeticException exception) {
             throw new InvalidInventoryQuantityException(
                     "입고 후 재고 수량이 허용 범위를 초과합니다.",
+                    exception
+            );
+        }
+    }
+
+    public void decrease(int quantity) {
+        if (quantity < 1) {
+            throw new InvalidInventoryQuantityException(
+                    "주문 차감 수량은 1 이상이어야 합니다."
+            );
+        }
+
+        if (quantity > this.quantity) {
+            throw new InsufficientInventoryException(
+                    productVariant.getId(),
+                    quantity,
+                    this.quantity
+            );
+        }
+
+        this.quantity -= quantity;
+    }
+
+    public void restore(int quantity) {
+        if (quantity < 1) {
+            throw new InvalidInventoryQuantityException(
+                    "주문 취소 복구 수량은 1 이상이어야 합니다."
+            );
+        }
+
+        try {
+            this.quantity = Math.addExact(this.quantity, quantity);
+        } catch (ArithmeticException exception) {
+            throw new InvalidInventoryQuantityException(
+                    "주문 취소 복구 후 재고 수량이 허용 범위를 초과합니다.",
                     exception
             );
         }

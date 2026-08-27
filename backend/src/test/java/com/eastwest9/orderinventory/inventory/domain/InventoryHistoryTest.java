@@ -117,6 +117,74 @@ class InventoryHistoryTest {
                 .hasMessage("상품 SKU는 null일 수 없습니다.");
     }
 
+    @Test
+    void 주문_재고_이력을_생성한다() {
+        InventoryHistory history = InventoryHistory.order(
+                createProductVariant(),
+                100L,
+                100,
+                97
+        );
+
+        assertThat(history.getOrderItemId()).isEqualTo(100L);
+        assertThat(history.getChangeType()).isEqualTo(InventoryChangeType.ORDER);
+        assertThat(history.getChangeQuantity()).isEqualTo(-3);
+        assertThat(history.getBeforeQuantity()).isEqualTo(100);
+        assertThat(history.getAfterQuantity()).isEqualTo(97);
+    }
+
+    @Test
+    void 주문_재고_이력의_주문_항목_ID는_필수이다() {
+        assertThatThrownBy(() -> InventoryHistory.order(
+                createProductVariant(), null, 100, 97
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("주문 재고 이력의 주문 항목 ID는 필수입니다.");
+    }
+
+    @Test
+    void 주문_재고_이력은_재고가_감소해야_한다() {
+        assertThatThrownBy(() -> InventoryHistory.order(
+                createProductVariant(), 100L, 100, 100
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("주문 재고 변경 수량은 음수여야 합니다.");
+    }
+
+    @Test
+    void 주문_취소_재고_이력을_생성한다() {
+        InventoryHistory history = InventoryHistory.orderCancel(
+                createProductVariant(),
+                100L,
+                97,
+                100
+        );
+
+        assertThat(history.getOrderItemId()).isEqualTo(100L);
+        assertThat(history.getChangeType()).isEqualTo(InventoryChangeType.ORDER_CANCEL);
+        assertThat(history.getChangeQuantity()).isEqualTo(3);
+        assertThat(history.getBeforeQuantity()).isEqualTo(97);
+        assertThat(history.getAfterQuantity()).isEqualTo(100);
+    }
+
+    @Test
+    void 주문_취소_재고_이력의_주문_항목_ID는_필수이다() {
+        assertThatThrownBy(() -> InventoryHistory.orderCancel(
+                createProductVariant(), null, 97, 100
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("주문 재고 이력의 주문 항목 ID는 필수입니다.");
+    }
+
+    @Test
+    void 주문_취소_재고_이력은_재고가_증가해야_한다() {
+        assertThatThrownBy(() -> InventoryHistory.orderCancel(
+                createProductVariant(), 100L, 100, 100
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("주문 취소 재고 변경 수량은 양수여야 합니다.");
+    }
+
     private ProductVariant createProductVariant() {
         return new ProductVariant(
                 "TEST-001",
