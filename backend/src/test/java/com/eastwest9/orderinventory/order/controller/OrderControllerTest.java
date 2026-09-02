@@ -19,6 +19,7 @@ import com.eastwest9.orderinventory.order.exception.InvalidOrderException;
 import com.eastwest9.orderinventory.order.exception.OrderAlreadyCanceledException;
 import com.eastwest9.orderinventory.order.exception.OrderNotFoundException;
 import com.eastwest9.orderinventory.order.service.OrderService;
+import com.eastwest9.orderinventory.order.service.SynchronizedOrderService;
 import com.eastwest9.orderinventory.product.exception.ProductVariantNotFoundException;
 import com.eastwest9.orderinventory.product.exception.ProductVariantNotOrderableException;
 import java.math.BigDecimal;
@@ -42,9 +43,12 @@ class OrderControllerTest {
     @MockitoBean
     private OrderService orderService;
 
+    @MockitoBean
+    private SynchronizedOrderService synchronizedOrderService;
+
     @Test
     void 주문_생성_성공시_201을_반환한다() throws Exception {
-        given(orderService.createOrder(any(OrderCreateRequestDto.class)))
+        given(synchronizedOrderService.createOrder(any(OrderCreateRequestDto.class)))
                 .willReturn(orderResponse(OrderStatus.CREATED, null));
 
         mockMvc.perform(
@@ -106,7 +110,7 @@ class OrderControllerTest {
 
     @Test
     void 회원이_없으면_404를_반환한다() throws Exception {
-        given(orderService.createOrder(any(OrderCreateRequestDto.class)))
+        given(synchronizedOrderService.createOrder(any(OrderCreateRequestDto.class)))
                 .willThrow(new MemberNotFoundException(999L));
 
         mockMvc.perform(
@@ -120,7 +124,7 @@ class OrderControllerTest {
 
     @Test
     void 상품_SKU가_없으면_404를_반환한다() throws Exception {
-        given(orderService.createOrder(any(OrderCreateRequestDto.class)))
+        given(synchronizedOrderService.createOrder(any(OrderCreateRequestDto.class)))
                 .willThrow(new ProductVariantNotFoundException(10L));
 
         mockMvc.perform(
@@ -135,7 +139,7 @@ class OrderControllerTest {
 
     @Test
     void 판매_불가능한_SKU면_409를_반환한다() throws Exception {
-        given(orderService.createOrder(any(OrderCreateRequestDto.class)))
+        given(synchronizedOrderService.createOrder(any(OrderCreateRequestDto.class)))
                 .willThrow(new ProductVariantNotOrderableException(10L));
 
         mockMvc.perform(
@@ -150,7 +154,7 @@ class OrderControllerTest {
 
     @Test
     void 재고가_부족하면_409를_반환한다() throws Exception {
-        given(orderService.createOrder(any(OrderCreateRequestDto.class)))
+        given(synchronizedOrderService.createOrder(any(OrderCreateRequestDto.class)))
                 .willThrow(new InsufficientInventoryException(10L, 2, 1));
 
         mockMvc.perform(
@@ -165,7 +169,7 @@ class OrderControllerTest {
 
     @Test
     void 잘못된_주문이면_400을_반환한다() throws Exception {
-        given(orderService.createOrder(any(OrderCreateRequestDto.class)))
+        given(synchronizedOrderService.createOrder(any(OrderCreateRequestDto.class)))
                 .willThrow(new InvalidOrderException("중복 SKU"));
 
         mockMvc.perform(
