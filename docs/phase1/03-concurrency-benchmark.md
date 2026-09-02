@@ -130,4 +130,116 @@ TX B: 99 계산 후 UPDATE
 | Strategy | Correctness | Overselling Runs | Lost Update Runs | HTTP201 Avg | ElapsedSec Avg | AttemptedTPS Avg |
 |---|---|---:|---:|---:|---:|---:|
 | NO_LOCK | FAIL | 5/5 | 5/5 | 311.4 | 16.709 | 63.29 |
+| SYNCHRONIZED | PASS (3/3) | 0/3 | 0/3 | 100.0 | 21.903 | 46.08 |
 
+## 6. SYNCHRONIZED
+
+### 6.1 구현 구조
+
+주문 생성 요청 앞에 단일 Spring singleton facade의 intrinsic monitor를 두고, 기존 트랜잭션 서비스와 비즈니스 로직은 변경하지 않았다.
+
+```text
+OrderController
+-> SynchronizedOrderService
+-> OrderService @Transactional
+```
+
+`SynchronizedOrderService.createOrder()`는 non-transactional `public synchronized` 메서드이며 `OrderService.createOrder()` 호출만 위임한다. 이에 따라 lock과 transaction의 순서는 다음과 같다.
+
+```text
+monitor 획득
+-> transaction begin
+-> 주문/재고/history 처리
+-> commit/rollback
+-> proxy 반환
+-> monitor 해제
+```
+
+트랜잭션 proxy가 commit 또는 rollback을 완료한 뒤 facade로 반환하므로, application-level monitor는 트랜잭션 완료까지 유지된다.
+
+### 6.2 실험 조건
+
+| 항목 | 값 |
+|---|---:|
+| Strategy | `SYNCHRONIZED` |
+| Initial Inventory | 100 |
+| Total Requests | 1,000 |
+| Quantity Per Request | 1 |
+| Parallelism | 50 |
+| Runs | 3 |
+| Member ID | 1 |
+| Product Variant ID | 3 |
+| SKU | `CONCURRENCY-001` |
+| Client | PowerShell 7 |
+
+시간 제약으로 `SYNCHRONIZED` 전략은 동일 조건에서 3회 반복 검증했으며 RUN-04와 RUN-05는 수행하지 않았다.
+
+### 6.3 실행 결과
+
+| Run | HTTP201 | Expected409 | UnexpectedHTTP | TransportErrors | CommittedOrders | OrderItems | SuccessQty | HistoryCount | HistoryDecrease | FinalQty | ActualDecrease | OversoldQty | LostUpdateGap | ElapsedSec | AttemptedTPS | SuccessTPS |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| RUN-01 | 100 | 900 | 0 | 0 | 100 | 100 | 100 | 100 | 100 | 0 | 100 | 0 | 0 | 24.979 | 40.03 | 4.00 |
+| RUN-02 | 100 | 900 | 0 | 0 | 100 | 100 | 100 | 100 | 100 | 0 | 100 | 0 | 0 | 20.308 | 49.24 | 4.92 |
+| RUN-03 | 100 | 900 | 0 | 0 | 100 | 100 | 100 | 100 | 100 | 0 | 100 | 0 | 0 | 20.421 | 48.97 | 4.90 |
+
+모든 Run에서 ORDER history의 `SignedHistoryChange`는 -100이었다. 동일한 `before_quantity -> after_quantity` transition의 최대 count는 1이었으며 중복 transition은 없었다.
+
+### 6.4 집계
+
+| 지표 | 최소 | 최대 | 평균 |
+|---|---:|---:|---:|
+| HTTP201 | 100 | 100 | 100.0 |
+| OversoldQuantity | 0 | 0 | 0.0 |
+| LostUpdateGap | 0 | 0 | 0.0 |
+| ElapsedSec | 20.308 | 24.979 | 21.903 |
+| AttemptedTPS | 40.03 | 49.24 | 46.08 |
+| SuccessTPS | 4.00 | 4.92 | 4.61 |
+
+### 6.5 정합성 판정
+
+3회 모두 다음 값이 100으로 일치했다.
+
+```text
+HTTP201
+= CommittedOrderCount
+= OrderItemCount
+= SuccessQuantitySum
+= HistoryCount
+= HistoryDecrease
+= ActualInventoryDecrease
+= 100
+```
+
+| 평가 항목 | 판정 |
+|---|---|
+| Correctness | **PASS (3/3)** |
+| Overselling | **0/3** |
+| Lost Update | **0/3** |
+| History mismatch | **0/3** |
+| Order -> History consistency | **PASS** |
+| Order -> Inventory consistency | **PASS** |
+
+`UnexpectedHTTP`와 `TransportErrors`도 3회 모두 0이므로 인프라 또는 클라이언트 오류가 정합성 결과에 영향을 준 정황은 없다.
+
+### 6.6 NO_LOCK과 정합성 비교
+
+| Strategy | Correctness | Overselling | Lost Update | Order -> History | Order -> Inventory |
+|---|---|---:|---:|---|---|
+| NO_LOCK | FAIL | 5/5 | 5/5 | PASS | FAIL |
+| SYNCHRONIZED | PASS (3/3) | 0/3 | 0/3 | PASS | PASS |
+
+`NO_LOCK`은 성공 주문과 ORDER history 사이의 수량은 일치했지만, 성공 주문 수량과 실제 Inventory 감소량이 5회 모두 일치하지 않았다. 반면 `SYNCHRONIZED`는 3회 모두 주문, history, 실제 Inventory 감소량이 일치했고 초과 판매와 Lost Update가 관찰되지 않았다.
+
+### 6.7 한계
+
+- 동일 JVM 안에서만 유효하다.
+- 동일한 singleton `SynchronizedOrderService` facade를 통과하는 주문 생성만 보호한다.
+- scale-out 환경에서는 application instance마다 monitor가 별도로 존재한다.
+- 다른 JVM, 다른 프로세스, 직접 DB 변경은 보호하지 못한다.
+- 모든 주문 생성을 하나의 monitor로 직렬화하므로 SKU가 달라도 병렬로 처리할 수 없다.
+
+따라서 이번 결과는 단일 JVM 직렬화 비교군의 효과를 보여주지만, 이를 분산 환경의 최종 동시성 전략으로 확대 해석하지 않는다.
+
+### 6.8 성능 해석 주의
+
+PowerShell 7에서 측정한 `ElapsedSec`, `AttemptedTPS`, `SuccessTPS`는 정합성 재현 과정의 참고값이다. `NO_LOCK`과 `SYNCHRONIZED`의 TPS만으로 최종 성능 우열을 확정하지 않는다. 향후 모든 동시성 전략에 동일한 benchmark harness를 적용한 뒤 전략 간 성능을 다시 비교한다.
