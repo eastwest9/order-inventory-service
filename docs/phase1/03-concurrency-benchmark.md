@@ -132,6 +132,7 @@ TX B: 99 계산 후 UPDATE
 | NO_LOCK | FAIL | 5/5 | 5/5 | 311.4 | 16.709 | 63.29 | 미기록 | 해당 없음 | 동시 UPDATE의 Lost Update로 초과 판매 발생 |
 | SYNCHRONIZED | PASS (3/3) | 0/3 | 0/3 | 100.0 | 21.903 | 46.08 | 4.61 | 없음 | 단일 JVM monitor로 주문 생성 직렬화 |
 | OPTIMISTIC_NO_RETRY | PASS (3/3) | 0/3 | 0/3 | 100 | 13.899 | 73.47 | 7.35 | 평균 235건 (23.5%) | `@Version` 충돌 감지, retry 없음 |
+| PESSIMISTIC_LOCK | PASS (3/3) | 0/3 | 0/3 | 100 | 12.514 | 81.83 | 8.18 | 0건 | DB row lock, 충돌 시 대기 |
 
 ## 6. SYNCHRONIZED
 
@@ -393,3 +394,162 @@ JPA Optimistic Lock은 `@Version` 값을 UPDATE 조건에 포함한다. 여러 t
 ### 7.7 성능 해석 주의
 
 PowerShell 7에서 측정한 `ElapsedSec`, `AttemptedTPS`, `SuccessTPS`는 정합성 재현 과정의 reference benchmark다. 세 전략의 반복 횟수도 `NO_LOCK` 5회, `SYNCHRONIZED`와 `OPTIMISTIC_NO_RETRY` 각 3회로 동일하지 않으므로 이 수치만으로 절대적인 성능 우열이나 최종 동시성 전략을 확정하지 않는다.
+
+## 8. PESSIMISTIC_LOCK
+
+### 8.1 구현 구조
+
+Inventory entity에서 JPA Optimistic Lock에 사용했던 `@Version` annotation과 `version` 필드를 제거했다. DB의 `inventory.version` 컬럼은 그대로 존재하지만 이번 전략에서는 JPA가 관리하지 않으며 correctness 판정 기준으로 사용하지 않았다.
+
+InventoryRepository에는 주문 생성 전용 조회를 추가했다.
+
+```java
+@Lock(LockModeType.PESSIMISTIC_WRITE)
+@Query("""
+        select i
+        from Inventory i
+        where i.productVariant.id = :variantId
+        """)
+Optional<Inventory> findByProductVariantIdForUpdate(
+        @Param("variantId") Long variantId
+);
+```
+
+이 조회는 개념적으로 MySQL에서 `SELECT ... FOR UPDATE` 형태의 row lock을 획득한다. 기존 일반 조회인 `findByProductVariant_Id(...)`는 별도의 Pessimistic Lock 없이 그대로 유지했다.
+
+활성 주문 생성 경로는 다음과 같다.
+
+```text
+OrderController
+-> OrderService.createOrder() @Transactional
+-> InventoryRepository.findByProductVariantIdForUpdate()
+-> Inventory row lock 획득
+-> quantity 확인 및 decrease()
+-> ORDER history 저장
+-> commit
+-> row lock 해제
+```
+
+`createOrder()`의 기존 트랜잭션 경계를 유지했으며 Retry와 Conditional Atomic Update는 적용하지 않았다. `SynchronizedOrderService`는 코드에 남아 있지만 active path가 아니고, Optimistic `@Version`도 활성화되어 있지 않다.
+
+### 8.2 실험 조건
+
+| 항목 | 값 |
+|---|---:|
+| Strategy | `PESSIMISTIC_LOCK` |
+| Initial Inventory | 100 |
+| Total Requests | 1,000 |
+| Quantity Per Request | 1 |
+| Parallelism | 50 |
+| TimeoutSec | 30 |
+| Runs | 3 |
+| Member ID | 1 |
+| Product ID | 3 |
+| Product Variant ID | 3 |
+| SKU | `CONCURRENCY-001` |
+| Client | PowerShell 7 |
+| Parallel execution | `ForEach-Object -Parallel` |
+| ThrottleLimit | 50 |
+
+`NO_LOCK`, `SYNCHRONIZED`, `OPTIMISTIC_NO_RETRY`와 동일한 SKU 및 부하 조건을 유지했다. 시간 제약으로 이 전략도 3회 반복 검증했다.
+
+### 8.3 실행 결과
+
+#### 8.3.1 HTTP 결과
+
+| Run | HTTP201 | InsufficientInventory409 | InventoryConflict409 | Unexpected409 | UnexpectedHTTP | TransportErrors | ConflictRatePct | ElapsedSec | AttemptedTPS | SuccessTPS |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| RUN-01 | 100 | 900 | 0 | 0 | 0 | 0 | 0% | 15.308 | 65.32 | 6.53 |
+| RUN-02 | 100 | 900 | 0 | 0 | 0 | 0 | 0% | 10.682 | 93.62 | 9.36 |
+| RUN-03 | 100 | 900 | 0 | 0 | 0 | 0 | 0% | 11.553 | 86.56 | 8.66 |
+
+각 Run에서 `HTTP201 + InsufficientInventory409 + InventoryConflict409 + Unexpected409 + UnexpectedHTTP + TransportErrors = 1,000`이었다.
+
+#### 8.3.2 Inventory 결과
+
+| Run | InitialQty | FinalQty | ActualDecrease | DbVersion (informational) | UtilizationPct |
+|---|---:|---:|---:|---:|---:|
+| RUN-01 | 100 | 0 | 100 | 303 | 100% |
+| RUN-02 | 100 | 0 | 100 | 303 | 100% |
+| RUN-03 | 100 | 0 | 100 | 303 | 100% |
+
+DB의 `inventory.version` 값은 세 Run에서 303으로 유지됐다. Inventory entity에 `@Version` 매핑이 없으므로 이 값은 informational data로만 기록했으며 correctness 판정에는 사용하지 않았다.
+
+#### 8.3.3 DB 정합성 결과
+
+| Run | CommittedOrders | OrderItems | SuccessQty | HistoryCount | SignedHistoryChange | HistoryDecrease | MaxSameTransition | UniqueTransitions | DuplicateTransition | InvalidTransition | Correctness | Oversold | LostUpdate |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---|---|---|
+| RUN-01 | 100 | 100 | 100 | 100 | -100 | 100 | 1 | 100 | false | 0 | PASS | false | false |
+| RUN-02 | 100 | 100 | 100 | 100 | -100 | 100 | 1 | 100 | false | 0 | PASS | false | false |
+| RUN-03 | 100 | 100 | 100 | 100 | -100 | 100 | 1 | 100 | false | 0 | PASS | false | false |
+
+세 Run 모두 CANCELED 주문과 `ORDER_CANCEL` history는 0건이었다. Committed `ORDER` history는 `100 -> 99`부터 `1 -> 0`까지 각 transition이 한 번씩 존재했고, 중복 및 비정상 transition은 없었다.
+
+각 Run의 900건 `INSUFFICIENT_INVENTORY` 실패 요청에 대해서도 baseline 이후 실제 committed row를 집계했다. 세 Run 모두 HTTP 성공 수와 Order, OrderItem, ORDER history 수가 100으로 일치해 실패 요청이 partial commit을 남긴 징후는 없었다. AUTO_INCREMENT ID gap은 건수로 사용하거나 오류로 판정하지 않았다.
+
+### 8.4 3회 집계
+
+| 지표 | 최소 | 최대 | 평균 |
+|---|---:|---:|---:|
+| HTTP201 | 100 | 100 | 100 |
+| InsufficientInventory409 | 900 | 900 | 900 |
+| InventoryConflict409 | 0 | 0 | 0 |
+| ElapsedSec | 10.682 | 15.308 | 12.514 |
+| AttemptedTPS | 65.32 | 93.62 | 81.83 |
+| SuccessTPS | 6.53 | 9.36 | 8.18 |
+
+- Correctness: **PASS (3/3)**
+- Overselling: **0/3**
+- Lost Update: **0/3**
+- ORDER history mismatch: **0/3**
+- HTTP/DB mismatch: **0/3**
+- Utilization 100%: **3/3**
+- InventoryConflict409: **총 0건**
+- Unexpected409: **총 0건**
+- UnexpectedHTTP: **총 0건**
+- TransportErrors: **총 0건**
+- Lock timeout/deadlock: **0/3 관찰**
+
+### 8.5 정합성 판정
+
+3회 모두 다음 관계가 성립했다.
+
+```text
+HTTP201
+= CommittedOrderCount
+= OrderItemCount
+= SuccessQuantitySum
+= HistoryCount
+= HistoryDecrease
+= ActualInventoryDecrease
+= 100
+```
+
+| 평가 항목 | 판정 |
+|---|---|
+| Correctness | **PASS (3/3)** |
+| Overselling | **0/3** |
+| Lost Update | **0/3** |
+| ORDER history mismatch | **0/3** |
+| HTTP/DB mismatch | **0/3** |
+| Order -> History consistency | **PASS** |
+| Order -> Inventory consistency | **PASS** |
+| Failure rollback consistency | **PASS** |
+
+세 Run 모두 성공한 주문, 실제 Inventory 감소량, ORDER history 감소량이 일치했다. 따라서 초과 판매, Lost Update, ORDER history mismatch, HTTP/DB mismatch는 관찰되지 않았다.
+
+### 8.6 Row lock 동작과 Optimistic Lock 비교
+
+`PESSIMISTIC_WRITE`는 동일한 Inventory row를 변경하려는 transaction을 DB row lock으로 직렬화한다. 먼저 lock을 획득한 transaction이 최신 quantity를 읽고 감소한 뒤 commit하면 lock이 해제되고, 다음 transaction이 lock을 획득해 최신 committed quantity를 읽는다.
+
+이번 실험에서는 이 순서로 재고 100개에 대한 주문만 성공했다. 이후 요청 900개는 lock 획득 후 최신 `quantity=0`을 확인해 `INSUFFICIENT_INVENTORY`로 종료됐다. 이에 따라 세 Run 모두 `HTTP201 = CommittedOrderCount = OrderItemCount = ActualInventoryDecrease = HistoryDecrease = 100` 관계가 유지됐다.
+
+`OPTIMISTIC_NO_RETRY`는 `@Version`으로 충돌을 감지하고 충돌 요청을 즉시 실패시켜 평균 235건, 23.5%의 `INVENTORY_CONFLICT`가 발생했다. 반면 `PESSIMISTIC_LOCK`은 DB row lock 획득을 기다린 뒤 처리했기 때문에 이번 실험의 `INVENTORY_CONFLICT`는 총 0건이었다. 성공 가능한 요청은 lock 획득 순서대로 처리됐고 최종 결과는 성공 100건, 재고 부족 900건이었다.
+
+Pessimistic Lock에는 lock wait 증가와 lock timeout 가능성이 있다. 여러 SKU를 한 트랜잭션에서 서로 다른 순서로 잠그면 deadlock이 발생할 수도 있다. 이번 단일 SKU 실험에서는 세 Run 모두 lock timeout이나 deadlock이 관찰되지 않았지만, 일반적으로 이러한 위험이 없다고 확대 해석하지 않는다.
+
+### 8.7 성능 해석 주의
+
+PowerShell 7에서 측정한 `ElapsedSec`, `AttemptedTPS`, `SuccessTPS`는 동일 로컬 환경에서 수행한 정합성 재현 목적의 reference benchmark다. 이번 결과만으로 Pessimistic Lock이 Optimistic Lock보다 항상 빠르거나 특정 전략이 최종적으로 가장 높은 성능을 낸다고 단정하지 않는다.
+
+네 전략의 반복 횟수, 로컬 실행 환경, PowerShell 기반 client 부하 생성 및 실행 시점의 환경 변동을 고려해야 한다. 최종 전략 선택은 이후 Conditional Atomic Update까지 동일한 조건으로 측정한 결과와 운영 환경의 lock wait, timeout, deadlock 특성을 함께 비교해 판단한다.
