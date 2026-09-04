@@ -13,6 +13,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -33,6 +34,10 @@ public class Inventory extends BaseTimeEntity {
 
     @Column(name = "quantity", nullable = false)
     private int quantity;
+
+    @Version
+    @Column(name = "version", nullable = false)
+    private Long version;
 
     public Inventory(ProductVariant productVariant, int initialQuantity) {
         validateProductVariant(productVariant);

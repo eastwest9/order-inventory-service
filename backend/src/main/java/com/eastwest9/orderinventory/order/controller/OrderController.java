@@ -4,7 +4,6 @@ import com.eastwest9.orderinventory.order.dto.OrderCreateRequestDto;
 import com.eastwest9.orderinventory.order.dto.OrderResponseDto;
 import com.eastwest9.orderinventory.order.dto.OrderSummaryResponseDto;
 import com.eastwest9.orderinventory.order.service.OrderService;
-import com.eastwest9.orderinventory.order.service.SynchronizedOrderService;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -23,13 +22,10 @@ import org.springframework.web.bind.annotation.RestController;
 public class OrderController {
 
     private final OrderService orderService;
-    private final SynchronizedOrderService synchronizedOrderService;
 
     @PostMapping
-    public ResponseEntity<OrderResponseDto> createOrder(
-            @Valid @RequestBody OrderCreateRequestDto request
-    ) {
-        OrderResponseDto response = synchronizedOrderService.createOrder(request);
+    public ResponseEntity<OrderResponseDto> createOrder(@Valid @RequestBody OrderCreateRequestDto request) {
+        OrderResponseDto response = orderService.createOrder(request);
 
         return ResponseEntity
                 .status(HttpStatus.CREATED)
@@ -37,9 +33,7 @@ public class OrderController {
     }
 
     @GetMapping("/{orderId}")
-    public ResponseEntity<OrderResponseDto> getOrder(
-            @PathVariable Long orderId
-    ) {
+    public ResponseEntity<OrderResponseDto> getOrder(@PathVariable Long orderId) {
         OrderResponseDto response = orderService.getOrder(orderId);
 
         return ResponseEntity.ok(response);
@@ -53,9 +47,7 @@ public class OrderController {
     }
 
     @PostMapping("/{orderId}/cancel")
-    public ResponseEntity<OrderResponseDto> cancelOrder(
-            @PathVariable Long orderId
-    ) {
+    public ResponseEntity<OrderResponseDto> cancelOrder(@PathVariable Long orderId) {
         OrderResponseDto response = orderService.cancelOrder(orderId);
 
         return ResponseEntity.ok(response);

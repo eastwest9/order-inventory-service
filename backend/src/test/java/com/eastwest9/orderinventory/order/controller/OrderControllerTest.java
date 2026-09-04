@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.eastwest9.orderinventory.common.exception.GlobalExceptionHandler;
+import com.eastwest9.orderinventory.inventory.domain.Inventory;
 import com.eastwest9.orderinventory.inventory.exception.InsufficientInventoryException;
 import com.eastwest9.orderinventory.member.exception.MemberNotFoundException;
 import com.eastwest9.orderinventory.order.domain.OrderStatus;
@@ -19,7 +20,6 @@ import com.eastwest9.orderinventory.order.exception.InvalidOrderException;
 import com.eastwest9.orderinventory.order.exception.OrderAlreadyCanceledException;
 import com.eastwest9.orderinventory.order.exception.OrderNotFoundException;
 import com.eastwest9.orderinventory.order.service.OrderService;
-import com.eastwest9.orderinventory.order.service.SynchronizedOrderService;
 import com.eastwest9.orderinventory.product.exception.ProductVariantNotFoundException;
 import com.eastwest9.orderinventory.product.exception.ProductVariantNotOrderableException;
 import java.math.BigDecimal;
@@ -30,6 +30,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -43,12 +44,9 @@ class OrderControllerTest {
     @MockitoBean
     private OrderService orderService;
 
-    @MockitoBean
-    private SynchronizedOrderService synchronizedOrderService;
-
     @Test
     void 주문_생성_성공시_201을_반환한다() throws Exception {
-        given(synchronizedOrderService.createOrder(any(OrderCreateRequestDto.class)))
+        given(orderService.createOrder(any(OrderCreateRequestDto.class)))
                 .willReturn(orderResponse(OrderStatus.CREATED, null));
 
         mockMvc.perform(
@@ -110,7 +108,7 @@ class OrderControllerTest {
 
     @Test
     void 회원이_없으면_404를_반환한다() throws Exception {
-        given(synchronizedOrderService.createOrder(any(OrderCreateRequestDto.class)))
+        given(orderService.createOrder(any(OrderCreateRequestDto.class)))
                 .willThrow(new MemberNotFoundException(999L));
 
         mockMvc.perform(
@@ -124,7 +122,7 @@ class OrderControllerTest {
 
     @Test
     void 상품_SKU가_없으면_404를_반환한다() throws Exception {
-        given(synchronizedOrderService.createOrder(any(OrderCreateRequestDto.class)))
+        given(orderService.createOrder(any(OrderCreateRequestDto.class)))
                 .willThrow(new ProductVariantNotFoundException(10L));
 
         mockMvc.perform(
@@ -139,7 +137,7 @@ class OrderControllerTest {
 
     @Test
     void 판매_불가능한_SKU면_409를_반환한다() throws Exception {
-        given(synchronizedOrderService.createOrder(any(OrderCreateRequestDto.class)))
+        given(orderService.createOrder(any(OrderCreateRequestDto.class)))
                 .willThrow(new ProductVariantNotOrderableException(10L));
 
         mockMvc.perform(
@@ -154,7 +152,7 @@ class OrderControllerTest {
 
     @Test
     void 재고가_부족하면_409를_반환한다() throws Exception {
-        given(synchronizedOrderService.createOrder(any(OrderCreateRequestDto.class)))
+        given(orderService.createOrder(any(OrderCreateRequestDto.class)))
                 .willThrow(new InsufficientInventoryException(10L, 2, 1));
 
         mockMvc.perform(
@@ -168,8 +166,26 @@ class OrderControllerTest {
     }
 
     @Test
+    void 재고_동시_변경_충돌이면_409를_반환한다() throws Exception {
+        given(orderService.createOrder(any(OrderCreateRequestDto.class)))
+                .willThrow(new ObjectOptimisticLockingFailureException(
+                        Inventory.class,
+                        10L
+                ));
+
+        mockMvc.perform(
+                        post("/api/orders")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(validCreateRequest())
+                )
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code")
+                        .value("INVENTORY_CONFLICT"));
+    }
+
+    @Test
     void 잘못된_주문이면_400을_반환한다() throws Exception {
-        given(synchronizedOrderService.createOrder(any(OrderCreateRequestDto.class)))
+        given(orderService.createOrder(any(OrderCreateRequestDto.class)))
                 .willThrow(new InvalidOrderException("중복 SKU"));
 
         mockMvc.perform(
@@ -248,10 +264,7 @@ class OrderControllerTest {
                 """;
     }
 
-    private OrderResponseDto orderResponse(
-            OrderStatus status,
-            LocalDateTime canceledAt
-    ) {
+    private OrderResponseDto orderResponse(OrderStatus status, LocalDateTime canceledAt) {
         LocalDateTime now = LocalDateTime.of(2026, 8, 26, 10, 0);
         OrderItemResponseDto item = new OrderItemResponseDto(
                 100L,

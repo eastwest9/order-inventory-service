@@ -12,6 +12,7 @@ import com.eastwest9.orderinventory.product.exception.DuplicateSkuCodeException;
 import com.eastwest9.orderinventory.product.exception.ProductNotFoundException;
 import com.eastwest9.orderinventory.product.exception.ProductVariantNotFoundException;
 import com.eastwest9.orderinventory.product.exception.ProductVariantNotOrderableException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -22,9 +23,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(MemberNotFoundException.class)
-    public ResponseEntity<ErrorResponseDto> handleMemberNotFound(
-            MemberNotFoundException exception
-    ) {
+    public ResponseEntity<ErrorResponseDto> handleMemberNotFound(MemberNotFoundException exception) {
         ErrorResponseDto response = ErrorResponseDto.of(
                 "MEMBER_NOT_FOUND",
                 exception.getMessage()
@@ -36,9 +35,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(OrderNotFoundException.class)
-    public ResponseEntity<ErrorResponseDto> handleOrderNotFound(
-            OrderNotFoundException exception
-    ) {
+    public ResponseEntity<ErrorResponseDto> handleOrderNotFound(OrderNotFoundException exception) {
         ErrorResponseDto response = ErrorResponseDto.of(
                 "ORDER_NOT_FOUND",
                 exception.getMessage()
@@ -50,9 +47,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(ProductVariantNotOrderableException.class)
-    public ResponseEntity<ErrorResponseDto> handleProductVariantNotOrderable(
-            ProductVariantNotOrderableException exception
-    ) {
+    public ResponseEntity<ErrorResponseDto> handleProductVariantNotOrderable(ProductVariantNotOrderableException exception) {
         ErrorResponseDto response = ErrorResponseDto.of(
                 "PRODUCT_VARIANT_NOT_ORDERABLE",
                 exception.getMessage()
@@ -64,9 +59,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(OrderAlreadyCanceledException.class)
-    public ResponseEntity<ErrorResponseDto> handleOrderAlreadyCanceled(
-            OrderAlreadyCanceledException exception
-    ) {
+    public ResponseEntity<ErrorResponseDto> handleOrderAlreadyCanceled(OrderAlreadyCanceledException exception) {
         ErrorResponseDto response = ErrorResponseDto.of(
                 "ORDER_ALREADY_CANCELED",
                 exception.getMessage()
@@ -78,9 +71,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(InvalidOrderException.class)
-    public ResponseEntity<ErrorResponseDto> handleInvalidOrder(
-            InvalidOrderException exception
-    ) {
+    public ResponseEntity<ErrorResponseDto> handleInvalidOrder(InvalidOrderException exception) {
         ErrorResponseDto response = ErrorResponseDto.of(
                 "INVALID_ORDER",
                 exception.getMessage()
@@ -92,9 +83,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(ProductNotFoundException.class)
-    public ResponseEntity<ErrorResponseDto> handleProductNotFound(
-            ProductNotFoundException exception
-    ) {
+    public ResponseEntity<ErrorResponseDto> handleProductNotFound(ProductNotFoundException exception) {
         ErrorResponseDto response = ErrorResponseDto.of(
                 "PRODUCT_NOT_FOUND",
                 exception.getMessage()
@@ -106,9 +95,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(DuplicateSkuCodeException.class)
-    public ResponseEntity<ErrorResponseDto> handleDuplicateSkuCode(
-            DuplicateSkuCodeException exception
-    ) {
+    public ResponseEntity<ErrorResponseDto> handleDuplicateSkuCode(DuplicateSkuCodeException exception) {
         ErrorResponseDto response = ErrorResponseDto.of(
                 "DUPLICATE_SKU_CODE",
                 exception.getMessage()
@@ -120,9 +107,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(ProductVariantNotFoundException.class)
-    public ResponseEntity<ErrorResponseDto> handleProductVariantNotFound(
-            ProductVariantNotFoundException exception
-    ) {
+    public ResponseEntity<ErrorResponseDto> handleProductVariantNotFound(ProductVariantNotFoundException exception) {
         ErrorResponseDto response = ErrorResponseDto.of(
                 "PRODUCT_VARIANT_NOT_FOUND",
                 exception.getMessage()
@@ -134,9 +119,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(InventoryNotFoundException.class)
-    public ResponseEntity<ErrorResponseDto> handleInventoryNotFound(
-            InventoryNotFoundException exception
-    ) {
+    public ResponseEntity<ErrorResponseDto> handleInventoryNotFound(InventoryNotFoundException exception) {
         ErrorResponseDto response = ErrorResponseDto.of(
                 "INVENTORY_NOT_FOUND",
                 exception.getMessage()
@@ -148,9 +131,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(InsufficientInventoryException.class)
-    public ResponseEntity<ErrorResponseDto> handleInsufficientInventory(
-            InsufficientInventoryException exception
-    ) {
+    public ResponseEntity<ErrorResponseDto> handleInsufficientInventory(InsufficientInventoryException exception) {
         ErrorResponseDto response = ErrorResponseDto.of(
                 "INSUFFICIENT_INVENTORY",
                 exception.getMessage()
@@ -161,10 +142,20 @@ public class GlobalExceptionHandler {
                 .body(response);
     }
 
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    public ResponseEntity<ErrorResponseDto> handleOptimisticLockingFailure(OptimisticLockingFailureException exception) {
+        ErrorResponseDto response = ErrorResponseDto.of(
+                "INVENTORY_CONFLICT",
+                "동시 재고 변경으로 주문 처리에 실패했습니다."
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(response);
+    }
+
     @ExceptionHandler(DuplicateInventoryException.class)
-    public ResponseEntity<ErrorResponseDto> handleDuplicateInventory(
-            DuplicateInventoryException exception
-    ) {
+    public ResponseEntity<ErrorResponseDto> handleDuplicateInventory(DuplicateInventoryException exception) {
         ErrorResponseDto response = ErrorResponseDto.of(
                 "DUPLICATE_INVENTORY",
                 exception.getMessage()
@@ -176,9 +167,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(InvalidInventoryQuantityException.class)
-    public ResponseEntity<ErrorResponseDto> handleInvalidInventoryQuantity(
-            InvalidInventoryQuantityException exception
-    ) {
+    public ResponseEntity<ErrorResponseDto> handleInvalidInventoryQuantity(InvalidInventoryQuantityException exception) {
         ErrorResponseDto response = ErrorResponseDto.of(
                 "INVALID_INVENTORY_QUANTITY",
                 exception.getMessage()
@@ -190,9 +179,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ErrorResponseDto> handleValidation(
-            MethodArgumentNotValidException exception
-    ) {
+    public ResponseEntity<ErrorResponseDto> handleValidation(MethodArgumentNotValidException exception) {
         String message = exception.getBindingResult()
                 .getFieldErrors()
                 .stream()
