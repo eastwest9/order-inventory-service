@@ -11,9 +11,7 @@ public class SynchronizedOrderService {
 
     private final OrderService orderService;
 
-    public synchronized OrderResponseDto createOrder(
-            OrderCreateRequestDto request
-    ) {
+    public synchronized OrderResponseDto createOrder(OrderCreateRequestDto request) {
         return orderService.createOrder(request);
     }
 }

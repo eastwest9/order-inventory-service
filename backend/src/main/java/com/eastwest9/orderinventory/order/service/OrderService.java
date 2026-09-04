@@ -132,9 +132,7 @@ public class OrderService {
                 .orElseThrow(() -> new InventoryNotFoundException(variantId));
     }
 
-    private List<Long> validateAndGetUniqueVariantIds(
-            OrderCreateRequestDto request
-    ) {
+    private List<Long> validateAndGetUniqueVariantIds(OrderCreateRequestDto request) {
         Set<Long> uniqueVariantIds = new LinkedHashSet<>();
 
         for (OrderItemCreateRequestDto item : request.items()) {
@@ -164,10 +162,7 @@ public class OrderService {
         return variantsById;
     }
 
-    private OrderItem createOrderItem(
-            OrderItemCreateRequestDto item,
-            Map<Long, ProductVariant> variantsById
-    ) {
+    private OrderItem createOrderItem(OrderItemCreateRequestDto item, Map<Long, ProductVariant> variantsById) {
         ProductVariant variant = variantsById.get(item.variantId());
         validateOrderable(variant);
 

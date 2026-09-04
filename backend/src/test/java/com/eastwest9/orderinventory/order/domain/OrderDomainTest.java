@@ -212,23 +212,14 @@ class OrderDomainTest {
         );
     }
 
-    private OrderItem createOrderItem(
-            String skuCode,
-            String variantName,
-            String salePrice,
-            int quantity
-    ) {
+    private OrderItem createOrderItem(String skuCode, String variantName, String salePrice, int quantity) {
         return new OrderItem(
                 createProductVariant(skuCode, variantName, salePrice),
                 quantity
         );
     }
 
-    private ProductVariant createProductVariant(
-            String skuCode,
-            String variantName,
-            String salePrice
-    ) {
+    private ProductVariant createProductVariant(String skuCode, String variantName, String salePrice) {
         Product product = new Product(
                 "테스트 상품",
                 ProductStatus.ON_SALE

@@ -415,9 +415,7 @@ class OrderServiceTest {
                 .willReturn(List.of(variant));
     }
 
-    private OrderCreateRequestDto createRequest(
-            OrderItemCreateRequestDto... items
-    ) {
+    private OrderCreateRequestDto createRequest(OrderItemCreateRequestDto... items) {
         return new OrderCreateRequestDto(1L, List.of(items));
     }
 
@@ -446,14 +444,7 @@ class OrderServiceTest {
         return member;
     }
 
-    private ProductVariant createVariant(
-            Long id,
-            ProductStatus productStatus,
-            ProductVariantStatus variantStatus,
-            String productName,
-            String variantName,
-            String salePrice
-    ) {
+    private ProductVariant createVariant(Long id, ProductStatus productStatus, ProductVariantStatus variantStatus, String productName, String variantName, String salePrice) {
         Product product = org.mockito.Mockito.mock(Product.class);
         lenient().when(product.getName()).thenReturn(productName);
         lenient().when(product.getStatus()).thenReturn(productStatus);

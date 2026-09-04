@@ -28,9 +28,7 @@ public class InventoryController {
     private final InventoryService inventoryService;
 
     @PostMapping
-    public ResponseEntity<InventoryResponseDto> createInventory(
-            @Valid @RequestBody InventoryCreateRequestDto request
-    ) {
+    public ResponseEntity<InventoryResponseDto> createInventory(@Valid @RequestBody InventoryCreateRequestDto request) {
         InventoryResponseDto response = inventoryService.createInventory(request);
 
         return ResponseEntity
@@ -39,19 +37,14 @@ public class InventoryController {
     }
 
     @GetMapping("/{variantId}")
-    public ResponseEntity<InventoryResponseDto> getInventory(
-            @PathVariable Long variantId
-    ) {
+    public ResponseEntity<InventoryResponseDto> getInventory(@PathVariable Long variantId) {
         InventoryResponseDto response = inventoryService.getInventory(variantId);
 
         return ResponseEntity.ok(response);
     }
 
     @PostMapping("/{variantId}/receipts")
-    public ResponseEntity<InventoryResponseDto> receiveInventory(
-            @PathVariable Long variantId,
-            @Valid @RequestBody InventoryReceiveRequestDto request
-    ) {
+    public ResponseEntity<InventoryResponseDto> receiveInventory(@PathVariable Long variantId, @Valid @RequestBody InventoryReceiveRequestDto request) {
         InventoryResponseDto response = inventoryService.receiveInventory(
                 variantId,
                 request
@@ -61,10 +54,7 @@ public class InventoryController {
     }
 
     @PutMapping("/{variantId}/quantity")
-    public ResponseEntity<InventoryResponseDto> adjustInventory(
-            @PathVariable Long variantId,
-            @Valid @RequestBody InventoryAdjustRequestDto request
-    ) {
+    public ResponseEntity<InventoryResponseDto> adjustInventory(@PathVariable Long variantId, @Valid @RequestBody InventoryAdjustRequestDto request) {
         InventoryResponseDto response = inventoryService.adjustInventory(
                 variantId,
                 request

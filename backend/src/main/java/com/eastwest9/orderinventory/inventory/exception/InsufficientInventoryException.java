@@ -9,11 +9,7 @@ public class InsufficientInventoryException extends RuntimeException {
     private final int requestedQuantity;
     private final int availableQuantity;
 
-    public InsufficientInventoryException(
-            Long variantId,
-            int requestedQuantity,
-            int availableQuantity
-    ) {
+    public InsufficientInventoryException(Long variantId, int requestedQuantity, int availableQuantity) {
         super("재고가 부족합니다. variantId=" + variantId
                 + ", requestedQuantity=" + requestedQuantity
                 + ", availableQuantity=" + availableQuantity);

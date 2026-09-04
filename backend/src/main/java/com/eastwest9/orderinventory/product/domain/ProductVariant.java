@@ -50,12 +50,7 @@ public class ProductVariant extends BaseTimeEntity {
     @Column(name = "variant_status", nullable = false, length = 20)
     private ProductVariantStatus status;
 
-    public ProductVariant(
-            String skuCode,
-            String name,
-            BigDecimal salePrice,
-            ProductVariantStatus status
-    ) {
+    public ProductVariant(String skuCode, String name, BigDecimal salePrice, ProductVariantStatus status) {
         validateSkuCode(skuCode);
         validateName(name);
         validateSalePrice(salePrice);
