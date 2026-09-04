@@ -2,6 +2,7 @@ package com.eastwest9.orderinventory.order.service;
 
 import com.eastwest9.orderinventory.inventory.domain.Inventory;
 import com.eastwest9.orderinventory.inventory.domain.InventoryHistory;
+import com.eastwest9.orderinventory.inventory.exception.InsufficientInventoryException;
 import com.eastwest9.orderinventory.inventory.exception.InventoryNotFoundException;
 import com.eastwest9.orderinventory.inventory.repository.InventoryHistoryRepository;
 import com.eastwest9.orderinventory.inventory.repository.InventoryRepository;
@@ -97,16 +98,29 @@ public class OrderService {
 
     private void decreaseInventory(OrderItem item) {
         Long variantId = item.getProductVariant().getId();
-        Inventory inventory = findInventoryForUpdate(variantId);
-        int beforeQuantity = inventory.getQuantity();
+        int requestedQuantity = item.getQuantity();
+        int updatedRows = inventoryRepository.decreaseQuantityIfAvailable(
+                variantId,
+                requestedQuantity
+        );
+        Inventory inventory = findInventory(variantId);
 
-        inventory.decrease(item.getQuantity());
+        if (updatedRows == 0) {
+            throw new InsufficientInventoryException(
+                    variantId,
+                    requestedQuantity,
+                    inventory.getQuantity()
+            );
+        }
+
+        int afterQuantity = inventory.getQuantity();
+        int beforeQuantity = Math.addExact(afterQuantity, requestedQuantity);
 
         InventoryHistory history = InventoryHistory.order(
                 item.getProductVariant(),
                 item.getId(),
                 beforeQuantity,
-                inventory.getQuantity()
+                afterQuantity
         );
         inventoryHistoryRepository.save(history);
     }
@@ -129,11 +143,6 @@ public class OrderService {
 
     private Inventory findInventory(Long variantId) {
         return inventoryRepository.findByProductVariant_Id(variantId)
-                .orElseThrow(() -> new InventoryNotFoundException(variantId));
-    }
-
-    private Inventory findInventoryForUpdate(Long variantId) {
-        return inventoryRepository.findByProductVariantIdForUpdate(variantId)
                 .orElseThrow(() -> new InventoryNotFoundException(variantId));
     }
 
