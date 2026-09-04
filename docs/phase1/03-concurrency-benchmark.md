@@ -125,12 +125,13 @@ TX B: 99 계산 후 UPDATE
 
 ## 5. 전략별 비교
 
-후속 전략은 공통 실험 조건과 동일한 benchmark harness로 측정한 뒤 아래 표에 추가한다. 결과가 확보되기 전에는 값을 추정하거나 전략을 최종 선택하지 않는다.
+각 전략은 공통 실험 조건과 동일한 benchmark harness로 측정한다. 결과가 확보되기 전에는 값을 추정하거나 전략을 최종 선택하지 않는다.
 
-| Strategy | Correctness | Overselling Runs | Lost Update Runs | HTTP201 Avg | ElapsedSec Avg | AttemptedTPS Avg |
-|---|---|---:|---:|---:|---:|---:|
-| NO_LOCK | FAIL | 5/5 | 5/5 | 311.4 | 16.709 | 63.29 |
-| SYNCHRONIZED | PASS (3/3) | 0/3 | 0/3 | 100.0 | 21.903 | 46.08 |
+| Strategy | Correctness | Overselling Runs | Lost Update Runs | HTTP201 Avg | ElapsedSec Avg | AttemptedTPS Avg | SuccessTPS Avg | Conflict | 특징 |
+|---|---|---:|---:|---:|---:|---:|---:|---|---|
+| NO_LOCK | FAIL | 5/5 | 5/5 | 311.4 | 16.709 | 63.29 | 미기록 | 해당 없음 | 동시 UPDATE의 Lost Update로 초과 판매 발생 |
+| SYNCHRONIZED | PASS (3/3) | 0/3 | 0/3 | 100.0 | 21.903 | 46.08 | 4.61 | 없음 | 단일 JVM monitor로 주문 생성 직렬화 |
+| OPTIMISTIC_NO_RETRY | PASS (3/3) | 0/3 | 0/3 | 100 | 13.899 | 73.47 | 7.35 | 평균 235건 (23.5%) | `@Version` 충돌 감지, retry 없음 |
 
 ## 6. SYNCHRONIZED
 
@@ -243,3 +244,152 @@ HTTP201
 ### 6.8 성능 해석 주의
 
 PowerShell 7에서 측정한 `ElapsedSec`, `AttemptedTPS`, `SuccessTPS`는 정합성 재현 과정의 참고값이다. `NO_LOCK`과 `SYNCHRONIZED`의 TPS만으로 최종 성능 우열을 확정하지 않는다. 향후 모든 동시성 전략에 동일한 benchmark harness를 적용한 뒤 전략 간 성능을 다시 비교한다.
+
+## 7. OPTIMISTIC_NO_RETRY
+
+### 7.1 구현 구조
+
+Inventory entity의 `version` 필드에 JPA Optimistic Lock을 활성화했다.
+
+```java
+@Version
+@Column(name = "version", nullable = false)
+private Long version;
+```
+
+`inventory.version` 컬럼은 기존 `V1__create_initial_schema.sql`부터 `BIGINT NOT NULL DEFAULT 0`으로 존재하므로 신규 migration은 추가하지 않았다.
+
+활성 주문 생성 경로는 다음과 같다.
+
+```text
+OrderController
+-> OrderService.createOrder()
+-> @Transactional
+```
+
+`SynchronizedOrderService`는 코드에 남아 있지만 이번 전략의 active path에서는 사용하지 않았다. Retry, Pessimistic Lock, Conditional Atomic Update, `@Lock`은 적용하지 않았으며 주문 생성 경로에서 명시적인 Inventory flush도 호출하지 않았다.
+
+Optimistic 충돌은 다음 HTTP 응답으로 변환했다.
+
+```text
+OptimisticLockingFailureException
+-> HTTP 409
+-> INVENTORY_CONFLICT
+```
+
+### 7.2 실험 조건
+
+| 항목 | 값 |
+|---|---:|
+| Strategy | `OPTIMISTIC_NO_RETRY` |
+| Initial Inventory | 100 |
+| Total Requests | 1,000 |
+| Quantity Per Request | 1 |
+| Parallelism | 50 |
+| TimeoutSec | 30 |
+| Runs | 3 |
+| Member ID | 1 |
+| Product ID | 3 |
+| Product Variant ID | 3 |
+| SKU | `CONCURRENCY-001` |
+| Client | PowerShell 7 |
+| Parallel execution | `ForEach-Object -Parallel` |
+| ThrottleLimit | 50 |
+
+`NO_LOCK`, `SYNCHRONIZED`와 동일한 SKU 및 부하 조건을 유지했다. 시간 제약으로 이 전략도 3회 반복 검증했다.
+
+### 7.3 실행 결과
+
+#### 7.3.1 HTTP 결과
+
+| Run | HTTP201 | InsufficientInventory409 | InventoryConflict409 | Unexpected409 | UnexpectedHTTP | TransportErrors | ConflictRatePct | ElapsedSec | AttemptedTPS | SuccessTPS |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| RUN-01 | 100 | 659 | 241 | 0 | 0 | 0 | 24.1% | 14.690 | 68.08 | 6.81 |
+| RUN-02 | 100 | 672 | 228 | 0 | 0 | 0 | 22.8% | 15.754 | 63.48 | 6.35 |
+| RUN-03 | 100 | 664 | 236 | 0 | 0 | 0 | 23.6% | 11.254 | 88.86 | 8.89 |
+
+각 Run에서 `HTTP201 + InsufficientInventory409 + InventoryConflict409 + Unexpected409 + UnexpectedHTTP + TransportErrors = 1,000`이었다.
+
+#### 7.3.2 Inventory 및 version 결과
+
+| Run | InitialQty | FinalQty | ActualDecrease | VersionBefore | VersionAfter | VersionIncrease | UtilizationPct |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| RUN-01 | 100 | 0 | 100 | 1 | 101 | 100 | 100% |
+| RUN-02 | 100 | 0 | 100 | 102 | 202 | 100 | 100% |
+| RUN-03 | 100 | 0 | 100 | 203 | 303 | 100 | 100% |
+
+모든 Run에서 `VersionIncrease`는 100으로, 실제 Inventory 변경 성공 횟수 및 `ActualInventoryDecrease`와 일치했다.
+
+#### 7.3.3 DB 정합성 결과
+
+| Run | CommittedOrders | OrderItems | SuccessQty | HistoryCount | SignedHistoryChange | HistoryDecrease | MaxSameTransition | DuplicateTransition | Correctness | Oversold | LostUpdate |
+|---|---:|---:|---:|---:|---:|---:|---:|---|---|---|---|
+| RUN-01 | 100 | 100 | 100 | 100 | -100 | 100 | 1 | false | PASS | false | false |
+| RUN-02 | 100 | 100 | 100 | 100 | -100 | 100 | 1 | false | PASS | false | false |
+| RUN-03 | 100 | 100 | 100 | 100 | -100 | 100 | 1 | false | PASS | false | false |
+
+세 Run 모두 CANCELED 주문과 `ORDER_CANCEL` history는 0건이었다. Committed `ORDER` history에서 동일한 `before_quantity -> after_quantity -> change_quantity` transition의 최대 count는 1이었고 중복 transition은 없었다.
+
+### 7.4 3회 집계
+
+| 지표 | 최소 | 최대 | 평균 |
+|---|---:|---:|---:|
+| HTTP201 | 100 | 100 | 100 |
+| InsufficientInventory409 | 659 | 672 | 665 |
+| InventoryConflict409 | 228 | 241 | 235 |
+| ConflictRatePct | 22.8% | 24.1% | 23.5% |
+| ElapsedSec | 11.254 | 15.754 | 13.899 |
+| AttemptedTPS | 63.48 | 88.86 | 73.47 |
+| SuccessTPS | 6.35 | 8.89 | 7.35 |
+| VersionIncrease | 100 | 100 | 100 |
+
+- Correctness: **PASS (3/3)**
+- Overselling: **0/3**
+- Lost Update: **0/3**
+- Utilization 100%: **3/3**
+- Unexpected409: **총 0건**
+- UnexpectedHTTP: **총 0건**
+- TransportErrors: **총 0건**
+
+### 7.5 정합성 판정
+
+3회 모두 다음 관계가 성립했다.
+
+```text
+HTTP201
+= CommittedOrderCount
+= OrderItemCount
+= SuccessQuantitySum
+= HistoryCount
+= HistoryDecrease
+= ActualInventoryDecrease
+= VersionIncrease
+= 100
+```
+
+| 평가 항목 | 판정 |
+|---|---|
+| Correctness | **PASS (3/3)** |
+| Overselling | **0/3** |
+| Lost Update | **0/3** |
+| ORDER history mismatch | **0/3** |
+| HTTP/DB mismatch | **0/3** |
+| Order -> History consistency | **PASS** |
+| Order -> Inventory consistency | **PASS** |
+| Conflict rollback consistency | **PASS** |
+
+평균 235건의 `INVENTORY_CONFLICT`가 발생했지만 충돌 transaction은 rollback되어 committed Order, OrderItem, Inventory, InventoryHistory에 부분 데이터가 남은 징후가 없었다. `GenerationType.IDENTITY`에서 rollback된 transaction이 AUTO_INCREMENT 값을 소비해 발생하는 ID gap은 오류로 판정하지 않았고, 각 baseline 이후 실제 committed row `COUNT`로 검증했다.
+
+`Unexpected409`, `UnexpectedHTTP`, `TransportErrors`는 3회 모두 0이므로 인프라 또는 클라이언트 오류가 정합성 결과에 영향을 준 정황은 없다.
+
+### 7.6 충돌 감지와 utilization 해석
+
+JPA Optimistic Lock은 `@Version` 값을 UPDATE 조건에 포함한다. 여러 transaction이 동일한 Inventory version을 읽더라도 먼저 UPDATE한 transaction만 성공하고, 이전 version으로 UPDATE하려는 나머지 transaction은 충돌로 감지된다. 이번 실험에서는 Run당 평균 235건, 전체 요청의 평균 23.5%가 `INVENTORY_CONFLICT`로 분류됐다.
+
+충돌을 재시도하지 않았지만 3회 모두 `UtilizationPct`는 100%였고 최종 재고는 0이었다. 이는 충돌한 개별 요청이 다시 실행됐다는 뜻이 아니다. 1,000개의 독립 요청이 계속 유입되는 동안 앞선 충돌 이후 최신 version을 읽은 새로운 요청이 성공하면서 최종적으로 재고 100개가 소진된 결과다.
+
+따라서 이번 3회의 결과만으로 `OPTIMISTIC_NO_RETRY`가 항상 100% utilization을 보장한다고 해석하지 않는다. 요청 수, 경합 수준, 도착 시점이 달라지면 충돌 이후 재고가 남을 수 있으므로 Correctness와 Utilization은 분리해 평가해야 한다.
+
+### 7.7 성능 해석 주의
+
+PowerShell 7에서 측정한 `ElapsedSec`, `AttemptedTPS`, `SuccessTPS`는 정합성 재현 과정의 reference benchmark다. 세 전략의 반복 횟수도 `NO_LOCK` 5회, `SYNCHRONIZED`와 `OPTIMISTIC_NO_RETRY` 각 3회로 동일하지 않으므로 이 수치만으로 절대적인 성능 우열이나 최종 동시성 전략을 확정하지 않는다.
