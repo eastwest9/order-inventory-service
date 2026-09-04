@@ -95,7 +95,7 @@ class OrderServiceTest {
                         invocation.getArgument(0)
                 ));
         Inventory inventory = new Inventory(variant, 100);
-        given(inventoryRepository.findByProductVariant_Id(10L))
+        given(inventoryRepository.findByProductVariantIdForUpdate(10L))
                 .willReturn(Optional.of(inventory));
 
         OrderResponseDto response = orderService.createOrder(request);
@@ -108,6 +108,8 @@ class OrderServiceTest {
         assertThat(response.items().get(0).productName())
                 .isEqualTo("테스트 상품");
         verify(orderRepository).save(any(Order.class));
+        verify(inventoryRepository).findByProductVariantIdForUpdate(10L);
+        verify(inventoryRepository, never()).findByProductVariant_Id(10L);
         assertThat(inventory.getQuantity()).isEqualTo(98);
 
         ArgumentCaptor<InventoryHistory> historyCaptor =
@@ -147,9 +149,9 @@ class OrderServiceTest {
                 ));
         Inventory firstInventory = new Inventory(first, 10);
         Inventory secondInventory = new Inventory(second, 20);
-        given(inventoryRepository.findByProductVariant_Id(10L))
+        given(inventoryRepository.findByProductVariantIdForUpdate(10L))
                 .willReturn(Optional.of(firstInventory));
-        given(inventoryRepository.findByProductVariant_Id(20L))
+        given(inventoryRepository.findByProductVariantIdForUpdate(20L))
                 .willReturn(Optional.of(secondInventory));
 
         OrderResponseDto response = orderService.createOrder(request);
@@ -350,7 +352,7 @@ class OrderServiceTest {
                 .willAnswer(invocation -> assignOrderItemIds(
                         invocation.getArgument(0)
                 ));
-        given(inventoryRepository.findByProductVariant_Id(10L))
+        given(inventoryRepository.findByProductVariantIdForUpdate(10L))
                 .willReturn(Optional.empty());
 
         assertThatThrownBy(() -> orderService.createOrder(createRequest(
@@ -380,7 +382,7 @@ class OrderServiceTest {
                 .willAnswer(invocation -> assignOrderItemIds(
                         invocation.getArgument(0)
                 ));
-        given(inventoryRepository.findByProductVariant_Id(10L))
+        given(inventoryRepository.findByProductVariantIdForUpdate(10L))
                 .willReturn(Optional.of(new Inventory(first, 1)));
 
         assertThatThrownBy(() -> orderService.createOrder(createRequest(
@@ -389,6 +391,9 @@ class OrderServiceTest {
         )))
                 .isInstanceOf(InsufficientInventoryException.class);
 
+        verify(inventoryRepository).findByProductVariantIdForUpdate(10L);
+        verify(inventoryRepository, never()).findByProductVariantIdForUpdate(20L);
+        verify(inventoryRepository, never()).findByProductVariant_Id(10L);
         verify(inventoryRepository, never()).findByProductVariant_Id(20L);
         verifyNoInteractions(inventoryHistoryRepository);
     }

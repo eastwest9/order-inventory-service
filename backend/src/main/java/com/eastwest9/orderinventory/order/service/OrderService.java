@@ -97,7 +97,7 @@ public class OrderService {
 
     private void decreaseInventory(OrderItem item) {
         Long variantId = item.getProductVariant().getId();
-        Inventory inventory = findInventory(variantId);
+        Inventory inventory = findInventoryForUpdate(variantId);
         int beforeQuantity = inventory.getQuantity();
 
         inventory.decrease(item.getQuantity());
@@ -129,6 +129,11 @@ public class OrderService {
 
     private Inventory findInventory(Long variantId) {
         return inventoryRepository.findByProductVariant_Id(variantId)
+                .orElseThrow(() -> new InventoryNotFoundException(variantId));
+    }
+
+    private Inventory findInventoryForUpdate(Long variantId) {
+        return inventoryRepository.findByProductVariantIdForUpdate(variantId)
                 .orElseThrow(() -> new InventoryNotFoundException(variantId));
     }
 
