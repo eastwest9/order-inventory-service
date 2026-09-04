@@ -24,9 +24,7 @@ public class ProductController {
     private final ProductService productService;
 
     @PostMapping
-    public ResponseEntity<ProductResponseDto> createProduct(
-            @Valid @RequestBody ProductCreateRequestDto request
-    ) {
+    public ResponseEntity<ProductResponseDto> createProduct(@Valid @RequestBody ProductCreateRequestDto request) {
         ProductResponseDto response = productService.createProduct(request);
 
         return ResponseEntity
@@ -34,9 +32,7 @@ public class ProductController {
                 .body(response);
     }
     @GetMapping("/{productId}")
-    public ResponseEntity<ProductResponseDto> getProduct(
-            @PathVariable Long productId
-    ) {
+    public ResponseEntity<ProductResponseDto> getProduct(@PathVariable Long productId) {
         ProductResponseDto response = productService.getProduct(productId);
 
         return ResponseEntity.ok(response);

@@ -24,9 +24,7 @@ public class OrderController {
     private final OrderService orderService;
 
     @PostMapping
-    public ResponseEntity<OrderResponseDto> createOrder(
-            @Valid @RequestBody OrderCreateRequestDto request
-    ) {
+    public ResponseEntity<OrderResponseDto> createOrder(@Valid @RequestBody OrderCreateRequestDto request) {
         OrderResponseDto response = orderService.createOrder(request);
 
         return ResponseEntity
@@ -35,9 +33,7 @@ public class OrderController {
     }
 
     @GetMapping("/{orderId}")
-    public ResponseEntity<OrderResponseDto> getOrder(
-            @PathVariable Long orderId
-    ) {
+    public ResponseEntity<OrderResponseDto> getOrder(@PathVariable Long orderId) {
         OrderResponseDto response = orderService.getOrder(orderId);
 
         return ResponseEntity.ok(response);
@@ -51,9 +47,7 @@ public class OrderController {
     }
 
     @PostMapping("/{orderId}/cancel")
-    public ResponseEntity<OrderResponseDto> cancelOrder(
-            @PathVariable Long orderId
-    ) {
+    public ResponseEntity<OrderResponseDto> cancelOrder(@PathVariable Long orderId) {
         OrderResponseDto response = orderService.cancelOrder(orderId);
 
         return ResponseEntity.ok(response);

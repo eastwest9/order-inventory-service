@@ -94,7 +94,9 @@ class OrderServiceTest {
                 .willAnswer(invocation -> assignOrderItemIds(
                         invocation.getArgument(0)
                 ));
-        Inventory inventory = new Inventory(variant, 100);
+        Inventory inventory = new Inventory(variant, 98);
+        given(inventoryRepository.decreaseQuantityIfAvailable(10L, 2))
+                .willReturn(1);
         given(inventoryRepository.findByProductVariant_Id(10L))
                 .willReturn(Optional.of(inventory));
 
@@ -108,6 +110,9 @@ class OrderServiceTest {
         assertThat(response.items().get(0).productName())
                 .isEqualTo("테스트 상품");
         verify(orderRepository).save(any(Order.class));
+        verify(inventoryRepository).decreaseQuantityIfAvailable(10L, 2);
+        verify(inventoryRepository).findByProductVariant_Id(10L);
+        verify(inventoryRepository, never()).findByProductVariantIdForUpdate(10L);
         assertThat(inventory.getQuantity()).isEqualTo(98);
 
         ArgumentCaptor<InventoryHistory> historyCaptor =
@@ -145,8 +150,12 @@ class OrderServiceTest {
                 .willAnswer(invocation -> assignOrderItemIds(
                         invocation.getArgument(0)
                 ));
-        Inventory firstInventory = new Inventory(first, 10);
-        Inventory secondInventory = new Inventory(second, 20);
+        Inventory firstInventory = new Inventory(first, 8);
+        Inventory secondInventory = new Inventory(second, 17);
+        given(inventoryRepository.decreaseQuantityIfAvailable(10L, 2))
+                .willReturn(1);
+        given(inventoryRepository.decreaseQuantityIfAvailable(20L, 3))
+                .willReturn(1);
         given(inventoryRepository.findByProductVariant_Id(10L))
                 .willReturn(Optional.of(firstInventory));
         given(inventoryRepository.findByProductVariant_Id(20L))
@@ -161,6 +170,9 @@ class OrderServiceTest {
         assertThat(response.totalAmount()).isEqualByComparingTo("27501.50");
         assertThat(firstInventory.getQuantity()).isEqualTo(8);
         assertThat(secondInventory.getQuantity()).isEqualTo(17);
+        verify(inventoryRepository).decreaseQuantityIfAvailable(10L, 2);
+        verify(inventoryRepository).decreaseQuantityIfAvailable(20L, 3);
+        verify(inventoryRepository, never()).findByProductVariantIdForUpdate(any());
 
         ArgumentCaptor<InventoryHistory> historyCaptor =
                 ArgumentCaptor.forClass(InventoryHistory.class);
@@ -350,6 +362,8 @@ class OrderServiceTest {
                 .willAnswer(invocation -> assignOrderItemIds(
                         invocation.getArgument(0)
                 ));
+        given(inventoryRepository.decreaseQuantityIfAvailable(10L, 1))
+                .willReturn(0);
         given(inventoryRepository.findByProductVariant_Id(10L))
                 .willReturn(Optional.empty());
 
@@ -358,6 +372,8 @@ class OrderServiceTest {
         )))
                 .isInstanceOf(InventoryNotFoundException.class);
 
+        verify(inventoryRepository).decreaseQuantityIfAvailable(10L, 1);
+        verify(inventoryRepository, never()).findByProductVariantIdForUpdate(any());
         verifyNoInteractions(inventoryHistoryRepository);
     }
 
@@ -380,6 +396,8 @@ class OrderServiceTest {
                 .willAnswer(invocation -> assignOrderItemIds(
                         invocation.getArgument(0)
                 ));
+        given(inventoryRepository.decreaseQuantityIfAvailable(10L, 2))
+                .willReturn(0);
         given(inventoryRepository.findByProductVariant_Id(10L))
                 .willReturn(Optional.of(new Inventory(first, 1)));
 
@@ -389,6 +407,10 @@ class OrderServiceTest {
         )))
                 .isInstanceOf(InsufficientInventoryException.class);
 
+        verify(inventoryRepository).decreaseQuantityIfAvailable(10L, 2);
+        verify(inventoryRepository, never()).decreaseQuantityIfAvailable(20L, 1);
+        verify(inventoryRepository, never()).findByProductVariantIdForUpdate(any());
+        verify(inventoryRepository).findByProductVariant_Id(10L);
         verify(inventoryRepository, never()).findByProductVariant_Id(20L);
         verifyNoInteractions(inventoryHistoryRepository);
     }
@@ -415,9 +437,7 @@ class OrderServiceTest {
                 .willReturn(List.of(variant));
     }
 
-    private OrderCreateRequestDto createRequest(
-            OrderItemCreateRequestDto... items
-    ) {
+    private OrderCreateRequestDto createRequest(OrderItemCreateRequestDto... items) {
         return new OrderCreateRequestDto(1L, List.of(items));
     }
 
@@ -446,14 +466,7 @@ class OrderServiceTest {
         return member;
     }
 
-    private ProductVariant createVariant(
-            Long id,
-            ProductStatus productStatus,
-            ProductVariantStatus variantStatus,
-            String productName,
-            String variantName,
-            String salePrice
-    ) {
+    private ProductVariant createVariant(Long id, ProductStatus productStatus, ProductVariantStatus variantStatus, String productName, String variantName, String salePrice) {
         Product product = org.mockito.Mockito.mock(Product.class);
         lenient().when(product.getName()).thenReturn(productName);
         lenient().when(product.getStatus()).thenReturn(productStatus);

@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.eastwest9.orderinventory.common.exception.GlobalExceptionHandler;
+import com.eastwest9.orderinventory.inventory.domain.Inventory;
 import com.eastwest9.orderinventory.inventory.exception.InsufficientInventoryException;
 import com.eastwest9.orderinventory.member.exception.MemberNotFoundException;
 import com.eastwest9.orderinventory.order.domain.OrderStatus;
@@ -29,6 +30,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -164,6 +166,24 @@ class OrderControllerTest {
     }
 
     @Test
+    void 재고_동시_변경_충돌이면_409를_반환한다() throws Exception {
+        given(orderService.createOrder(any(OrderCreateRequestDto.class)))
+                .willThrow(new ObjectOptimisticLockingFailureException(
+                        Inventory.class,
+                        10L
+                ));
+
+        mockMvc.perform(
+                        post("/api/orders")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(validCreateRequest())
+                )
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code")
+                        .value("INVENTORY_CONFLICT"));
+    }
+
+    @Test
     void 잘못된_주문이면_400을_반환한다() throws Exception {
         given(orderService.createOrder(any(OrderCreateRequestDto.class)))
                 .willThrow(new InvalidOrderException("중복 SKU"));
@@ -244,10 +264,7 @@ class OrderControllerTest {
                 """;
     }
 
-    private OrderResponseDto orderResponse(
-            OrderStatus status,
-            LocalDateTime canceledAt
-    ) {
+    private OrderResponseDto orderResponse(OrderStatus status, LocalDateTime canceledAt) {
         LocalDateTime now = LocalDateTime.of(2026, 8, 26, 10, 0);
         OrderItemResponseDto item = new OrderItemResponseDto(
                 100L,

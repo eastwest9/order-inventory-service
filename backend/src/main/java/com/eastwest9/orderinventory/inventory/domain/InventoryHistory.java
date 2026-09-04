@@ -47,13 +47,7 @@ public class InventoryHistory extends BaseCreatedEntity {
     @Column(name = "after_quantity", nullable = false)
     private int afterQuantity;
 
-    private InventoryHistory(
-            ProductVariant productVariant,
-            Long orderItemId,
-            InventoryChangeType changeType,
-            int beforeQuantity,
-            int afterQuantity
-    ) {
+    private InventoryHistory(ProductVariant productVariant, Long orderItemId, InventoryChangeType changeType, int beforeQuantity, int afterQuantity) {
         validateProductVariant(productVariant);
         validateOrderItemId(orderItemId, changeType);
         validateNonNegativeQuantity(beforeQuantity, "변경 전 재고 수량");
@@ -70,10 +64,7 @@ public class InventoryHistory extends BaseCreatedEntity {
         this.afterQuantity = afterQuantity;
     }
 
-    public static InventoryHistory initial(
-            ProductVariant productVariant,
-            int initialQuantity
-    ) {
+    public static InventoryHistory initial(ProductVariant productVariant, int initialQuantity) {
         return new InventoryHistory(
                 productVariant,
                 null,
@@ -83,11 +74,7 @@ public class InventoryHistory extends BaseCreatedEntity {
         );
     }
 
-    public static InventoryHistory receipt(
-            ProductVariant productVariant,
-            int beforeQuantity,
-            int afterQuantity
-    ) {
+    public static InventoryHistory receipt(ProductVariant productVariant, int beforeQuantity, int afterQuantity) {
         return new InventoryHistory(
                 productVariant,
                 null,
@@ -97,11 +84,7 @@ public class InventoryHistory extends BaseCreatedEntity {
         );
     }
 
-    public static InventoryHistory adjustment(
-            ProductVariant productVariant,
-            int beforeQuantity,
-            int afterQuantity
-    ) {
+    public static InventoryHistory adjustment(ProductVariant productVariant, int beforeQuantity, int afterQuantity) {
         return new InventoryHistory(
                 productVariant,
                 null,
@@ -111,12 +94,7 @@ public class InventoryHistory extends BaseCreatedEntity {
         );
     }
 
-    public static InventoryHistory order(
-            ProductVariant productVariant,
-            Long orderItemId,
-            int beforeQuantity,
-            int afterQuantity
-    ) {
+    public static InventoryHistory order(ProductVariant productVariant, Long orderItemId, int beforeQuantity, int afterQuantity) {
         return new InventoryHistory(
                 productVariant,
                 orderItemId,
@@ -126,12 +104,7 @@ public class InventoryHistory extends BaseCreatedEntity {
         );
     }
 
-    public static InventoryHistory orderCancel(
-            ProductVariant productVariant,
-            Long orderItemId,
-            int beforeQuantity,
-            int afterQuantity
-    ) {
+    public static InventoryHistory orderCancel(ProductVariant productVariant, Long orderItemId, int beforeQuantity, int afterQuantity) {
         return new InventoryHistory(
                 productVariant,
                 orderItemId,
@@ -141,10 +114,7 @@ public class InventoryHistory extends BaseCreatedEntity {
         );
     }
 
-    private void validateOrderItemId(
-            Long orderItemId,
-            InventoryChangeType changeType
-    ) {
+    private void validateOrderItemId(Long orderItemId, InventoryChangeType changeType) {
         boolean orderChange = changeType == InventoryChangeType.ORDER
                 || changeType == InventoryChangeType.ORDER_CANCEL;
 
@@ -169,10 +139,7 @@ public class InventoryHistory extends BaseCreatedEntity {
         }
     }
 
-    private void validateChangeQuantity(
-            InventoryChangeType changeType,
-            int changeQuantity
-    ) {
+    private void validateChangeQuantity(InventoryChangeType changeType, int changeQuantity) {
         if (changeType == InventoryChangeType.RECEIPT && changeQuantity < 1) {
             throw new IllegalArgumentException("입고 재고 변경 수량은 1 이상이어야 합니다.");
         }

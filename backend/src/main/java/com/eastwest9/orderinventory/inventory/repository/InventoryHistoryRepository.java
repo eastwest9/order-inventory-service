@@ -8,7 +8,5 @@ import java.util.List;
 public interface InventoryHistoryRepository
         extends JpaRepository<InventoryHistory, Long> {
 
-    List<InventoryHistory> findAllByProductVariant_IdOrderByIdDesc(
-            Long variantId
-    );
+    List<InventoryHistory> findAllByProductVariant_IdOrderByIdDesc(Long variantId);
 }

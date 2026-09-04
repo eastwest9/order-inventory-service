@@ -2,6 +2,7 @@ package com.eastwest9.orderinventory.order.service;
 
 import com.eastwest9.orderinventory.inventory.domain.Inventory;
 import com.eastwest9.orderinventory.inventory.domain.InventoryHistory;
+import com.eastwest9.orderinventory.inventory.exception.InsufficientInventoryException;
 import com.eastwest9.orderinventory.inventory.exception.InventoryNotFoundException;
 import com.eastwest9.orderinventory.inventory.repository.InventoryHistoryRepository;
 import com.eastwest9.orderinventory.inventory.repository.InventoryRepository;
@@ -97,16 +98,29 @@ public class OrderService {
 
     private void decreaseInventory(OrderItem item) {
         Long variantId = item.getProductVariant().getId();
+        int requestedQuantity = item.getQuantity();
+        int updatedRows = inventoryRepository.decreaseQuantityIfAvailable(
+                variantId,
+                requestedQuantity
+        );
         Inventory inventory = findInventory(variantId);
-        int beforeQuantity = inventory.getQuantity();
 
-        inventory.decrease(item.getQuantity());
+        if (updatedRows == 0) {
+            throw new InsufficientInventoryException(
+                    variantId,
+                    requestedQuantity,
+                    inventory.getQuantity()
+            );
+        }
+
+        int afterQuantity = inventory.getQuantity();
+        int beforeQuantity = Math.addExact(afterQuantity, requestedQuantity);
 
         InventoryHistory history = InventoryHistory.order(
                 item.getProductVariant(),
                 item.getId(),
                 beforeQuantity,
-                inventory.getQuantity()
+                afterQuantity
         );
         inventoryHistoryRepository.save(history);
     }
@@ -132,9 +146,7 @@ public class OrderService {
                 .orElseThrow(() -> new InventoryNotFoundException(variantId));
     }
 
-    private List<Long> validateAndGetUniqueVariantIds(
-            OrderCreateRequestDto request
-    ) {
+    private List<Long> validateAndGetUniqueVariantIds(OrderCreateRequestDto request) {
         Set<Long> uniqueVariantIds = new LinkedHashSet<>();
 
         for (OrderItemCreateRequestDto item : request.items()) {
@@ -164,10 +176,7 @@ public class OrderService {
         return variantsById;
     }
 
-    private OrderItem createOrderItem(
-            OrderItemCreateRequestDto item,
-            Map<Long, ProductVariant> variantsById
-    ) {
+    private OrderItem createOrderItem(OrderItemCreateRequestDto item, Map<Long, ProductVariant> variantsById) {
         ProductVariant variant = variantsById.get(item.variantId());
         validateOrderable(variant);
 

@@ -30,9 +30,7 @@ public class InventoryService {
     private final ProductVariantRepository productVariantRepository;
 
     @Transactional
-    public InventoryResponseDto createInventory(
-            InventoryCreateRequestDto request
-    ) {
+    public InventoryResponseDto createInventory(InventoryCreateRequestDto request) {
         ProductVariant productVariant = productVariantRepository
                 .findById(request.variantId())
                 .orElseThrow(() -> new ProductVariantNotFoundException(
@@ -63,10 +61,7 @@ public class InventoryService {
     }
 
     @Transactional
-    public InventoryResponseDto receiveInventory(
-            Long variantId,
-            InventoryReceiveRequestDto request
-    ) {
+    public InventoryResponseDto receiveInventory(Long variantId, InventoryReceiveRequestDto request) {
         Inventory inventory = findInventory(variantId);
         int beforeQuantity = inventory.getQuantity();
 
@@ -84,10 +79,7 @@ public class InventoryService {
     }
 
     @Transactional
-    public InventoryResponseDto adjustInventory(
-            Long variantId,
-            InventoryAdjustRequestDto request
-    ) {
+    public InventoryResponseDto adjustInventory(Long variantId, InventoryAdjustRequestDto request) {
         Inventory inventory = findInventory(variantId);
         int beforeQuantity = inventory.getQuantity();
 
@@ -104,9 +96,7 @@ public class InventoryService {
         return InventoryResponseDto.from(inventory);
     }
 
-    public List<InventoryHistoryResponseDto> getInventoryHistories(
-            Long variantId
-    ) {
+    public List<InventoryHistoryResponseDto> getInventoryHistories(Long variantId) {
         if (!inventoryRepository.existsByProductVariant_Id(variantId)) {
             throw new InventoryNotFoundException(variantId);
         }
