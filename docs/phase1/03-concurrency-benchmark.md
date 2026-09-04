@@ -133,6 +133,7 @@ TX B: 99 계산 후 UPDATE
 | SYNCHRONIZED | PASS (3/3) | 0/3 | 0/3 | 100.0 | 21.903 | 46.08 | 4.61 | 없음 | 단일 JVM monitor로 주문 생성 직렬화 |
 | OPTIMISTIC_NO_RETRY | PASS (3/3) | 0/3 | 0/3 | 100 | 13.899 | 73.47 | 7.35 | 평균 235건 (23.5%) | `@Version` 충돌 감지, retry 없음 |
 | PESSIMISTIC_LOCK | PASS (3/3) | 0/3 | 0/3 | 100 | 12.514 | 81.83 | 8.18 | 0건 | DB row lock, 충돌 시 대기 |
+| CONDITIONAL_ATOMIC_UPDATE | PASS (3/3) | 0/3 | 0/3 | 100 | 10.812 | 92.63 | 9.26 | 0건 | 조건 검사와 차감을 하나의 UPDATE로 처리 |
 
 ## 6. SYNCHRONIZED
 
@@ -553,3 +554,176 @@ Pessimistic Lock에는 lock wait 증가와 lock timeout 가능성이 있다. 여
 PowerShell 7에서 측정한 `ElapsedSec`, `AttemptedTPS`, `SuccessTPS`는 동일 로컬 환경에서 수행한 정합성 재현 목적의 reference benchmark다. 이번 결과만으로 Pessimistic Lock이 Optimistic Lock보다 항상 빠르거나 특정 전략이 최종적으로 가장 높은 성능을 낸다고 단정하지 않는다.
 
 네 전략의 반복 횟수, 로컬 실행 환경, PowerShell 기반 client 부하 생성 및 실행 시점의 환경 변동을 고려해야 한다. 최종 전략 선택은 이후 Conditional Atomic Update까지 동일한 조건으로 측정한 결과와 운영 환경의 lock wait, timeout, deadlock 특성을 함께 비교해 판단한다.
+
+## 9. CONDITIONAL_ATOMIC_UPDATE
+
+### 9.1 구현 구조
+
+활성 주문 생성 경로는 다음과 같다.
+
+```text
+POST /api/orders
+-> OrderController.createOrder()
+-> OrderService.createOrder() @Transactional
+-> InventoryRepository.decreaseQuantityIfAvailable()
+-> 조건부 atomic UPDATE
+-> 일반 Inventory 조회
+-> InventoryHistory.order() 저장
+```
+
+이번 전략에서는 Conditional Atomic Update가 active path이며 Pessimistic Lock, Optimistic `@Version`, `synchronized`, Retry는 활성화하지 않았다.
+
+`InventoryRepository.decreaseQuantityIfAvailable()`의 실제 JPQL은 `Inventory` entity의 `quantity`와 `productVariant.id` 매핑을 사용한다.
+
+```java
+@Modifying
+@Query("""
+        update Inventory i
+        set i.quantity = i.quantity - :quantity
+        where i.productVariant.id = :variantId
+          and i.quantity >= :quantity
+        """)
+int decreaseQuantityIfAvailable(
+        @Param("variantId") Long variantId,
+        @Param("quantity") int quantity
+);
+```
+
+의미상 재고 확인, 수량 조건 검사, 차감을 하나의 조건부 UPDATE에서 수행한다. updated row count가 1이면 차감 성공이고, 0이면 요청 수량 이상이라는 조건을 충족하지 못한 것으로 보고 `INSUFFICIENT_INVENTORY`로 처리한다. 성공 후에는 일반 Inventory 조회 결과로 차감 전후 수량을 계산해 `InventoryHistory.order()`를 저장한다.
+
+이 방식은 애플리케이션의 read-modify-write 경쟁과 별도의 `SELECT FOR UPDATE`를 피하지만 lock-free는 아니다. MySQL/InnoDB가 UPDATE를 처리하는 과정에서는 row lock과 lock wait가 발생할 수 있다.
+
+### 9.2 실험 조건
+
+| 항목 | 값 |
+|---|---:|
+| Strategy | `CONDITIONAL_ATOMIC_UPDATE` |
+| Initial Inventory | 100 |
+| Total Requests | 1,000 |
+| Quantity Per Request | 1 |
+| Parallelism | 50 |
+| TimeoutSec | 30 |
+| Runs | 3 |
+| Member ID | 1 |
+| Product ID | 3 |
+| Product Variant ID | 3 |
+| SKU | `CONCURRENCY-001` |
+| Client | PowerShell 7 |
+| Parallel execution | `ForEach-Object -Parallel` |
+| ThrottleLimit | 50 |
+
+앞선 전략과 동일한 SKU 및 부하 조건을 유지했고 3회 반복 검증했다.
+
+### 9.3 실행 결과
+
+#### 9.3.1 HTTP 결과
+
+| Run | HTTP201 | InsufficientInventory409 | InventoryConflict409 | Unexpected409 | UnexpectedHTTP | TransportErrors | ElapsedSec | AttemptedTPS | SuccessTPS |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| RUN-01 | 100 | 900 | 0 | 0 | 0 | 0 | 11.295 | 88.54 | 8.85 |
+| RUN-02 | 100 | 900 | 0 | 0 | 0 | 0 | 10.277 | 97.31 | 9.73 |
+| RUN-03 | 100 | 900 | 0 | 0 | 0 | 0 | 10.865 | 92.04 | 9.20 |
+
+각 Run에서 `HTTP201 + InsufficientInventory409 + InventoryConflict409 + Unexpected409 + UnexpectedHTTP + TransportErrors = 1,000`이었다.
+
+#### 9.3.2 Inventory 결과
+
+| Run | InitialQty | FinalQty | ActualDecrease | DbVersion (informational) | UtilizationPct |
+|---|---:|---:|---:|---:|---:|
+| RUN-01 | 100 | 0 | 100 | 303 | 100% |
+| RUN-02 | 100 | 0 | 100 | 303 | 100% |
+| RUN-03 | 100 | 0 | 100 | 303 | 100% |
+
+DB의 Inventory version 값은 세 Run에서 303으로 유지됐다. 현재 전략에서는 Inventory entity의 `@Version`이 비활성이므로 이 값은 informational data로만 기록했으며 correctness 판정에는 사용하지 않았다.
+
+#### 9.3.3 DB 정합성 결과
+
+| Run | CommittedOrders | OrderItems | SuccessQty | HistoryCount | SignedHistoryChange | HistoryDecrease | MaxSameTransition | UniqueTransitions | DuplicateTransition | Correctness | Oversold | LostUpdate | OrderHistoryMismatch | HttpDbMismatch |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|---|---|---|---|
+| RUN-01 | 100 | 100 | 100 | 100 | -100 | 100 | 1 | 100 | false | PASS | false | false | false | false |
+| RUN-02 | 100 | 100 | 100 | 100 | -100 | 100 | 1 | 100 | false | PASS | false | false | false | false |
+| RUN-03 | 100 | 100 | 100 | 100 | -100 | 100 | 1 | 100 | false | PASS | false | false | false | false |
+
+세 Run 모두 committed `ORDER` history는 `100 -> 99`부터 `1 -> 0`까지 각 transition이 한 번씩 존재했고 중복 transition은 없었다. HTTP 성공 수와 Order, OrderItem, 실제 Inventory 감소량, ORDER history 감소량도 모두 100으로 일치했다.
+
+### 9.4 3회 집계
+
+| 지표 | 최소 | 최대 | 평균 |
+|---|---:|---:|---:|
+| HTTP201 | 100 | 100 | 100 |
+| InsufficientInventory409 | 900 | 900 | 900 |
+| InventoryConflict409 | 0 | 0 | 0 |
+| ElapsedSec | 10.277 | 11.295 | 10.812 |
+| AttemptedTPS | 88.54 | 97.31 | 92.63 |
+| SuccessTPS | 8.85 | 9.73 | 9.26 |
+
+- Correctness: **PASS (3/3)**
+- Overselling: **0/3**
+- Lost Update: **0/3**
+- Inventory conflict: **0/3**
+- Unexpected409: **총 0건**
+- UnexpectedHTTP: **총 0건**
+- TransportErrors: **총 0건**
+
+### 9.5 정합성 판정
+
+3회 모두 다음 관계가 성립했다.
+
+```text
+HTTP201
+= CommittedOrderCount
+= OrderItemCount
+= SuccessQuantitySum
+= ActualInventoryDecrease
+= HistoryDecrease
+= 100
+```
+
+| 평가 항목 | 판정 |
+|---|---|
+| Correctness | **PASS (3/3)** |
+| Overselling | **0/3** |
+| Lost Update | **0/3** |
+| Inventory conflict | **0/3** |
+| ORDER history mismatch | **0/3** |
+| HTTP/DB mismatch | **0/3** |
+| Order -> History consistency | **PASS** |
+| Order -> Inventory consistency | **PASS** |
+
+updated row count를 성공 여부로 사용함으로써 동일 재고를 읽은 뒤 각자 계산하고 덮어쓰는 흐름이 발생하지 않았다. 세 Run 모두 초과 판매, Lost Update, ORDER history mismatch, HTTP/DB mismatch가 관찰되지 않았다.
+
+### 9.6 한계와 후속 검증
+
+- Conditional Atomic Update도 lock-free는 아니며 InnoDB UPDATE 과정에서 row lock 대기가 발생할 수 있다.
+- 여러 SKU를 하나의 주문에서 서로 다른 순서로 갱신하면 deadlock이 발생할 수 있다.
+- 복잡한 재고 불변식이나 여러 row의 상태를 함께 검증해야 한다면 `PESSIMISTIC_LOCK` 같은 전략이 더 적절할 수 있다.
+- deadlock 및 retry 정책은 현재 Issue #11의 단일 SKU benchmark 범위 밖이다.
+- `updatedRows == 0` 이후 available quantity를 조회하는 시점과 transaction isolation에 따른 예외 payload 정확성은 후속 Testcontainers/MySQL 통합 테스트에서 추가 검증할 수 있다.
+
+### 9.7 성능 해석 주의
+
+PowerShell 7에서 측정한 `ElapsedSec`, `AttemptedTPS`, `SuccessTPS`는 정밀 성능 벤치마크가 아니라 동일 로컬 환경에서 전략 간 결과를 비교하기 위한 reference benchmark다. 이번 측정에서 정합성을 유지한 전략 중 가장 짧은 평균 elapsed와 가장 높은 attempted/success TPS를 기록했지만, 반복 횟수, client 부하 생성 방식, 실행 시점의 환경 변동과 운영 환경의 DB lock 특성이 다르므로 절대적인 성능 우위로 일반화하지 않는다.
+
+## 10. 최종 비교 및 선택
+
+### 10.1 전체 전략 비교
+
+| Strategy | Correctness | Overselling / Lost Update | ElapsedSec Avg | AttemptedTPS Avg | SuccessTPS Avg | Conflict | 동시성 제어 특성 |
+|---|---|---|---:|---:|---:|---|---|
+| NO_LOCK | FAIL | 발생 | 16.709 | 63.29 | 미기록 | 해당 없음 | read-modify-write 경쟁으로 정합성 훼손 |
+| SYNCHRONIZED | PASS (3/3) | 0/3 | 21.903 | 46.08 | 4.61 | 없음 | 단일 JVM monitor에 의존 |
+| OPTIMISTIC_NO_RETRY | PASS (3/3) | 0/3 | 13.899 | 73.47 | 7.35 | 평균 23.5% | version conflict를 감지하고 retry 없이 실패 처리 |
+| PESSIMISTIC_LOCK | PASS (3/3) | 0/3 | 12.514 | 81.83 | 8.18 | 없음 | `SELECT FOR UPDATE` 후 재고 확인 및 변경 |
+| CONDITIONAL_ATOMIC_UPDATE | PASS (3/3) | 0/3 | 10.812 | 92.63 | 9.26 | 없음 | 조건 검사와 차감을 하나의 UPDATE로 처리 |
+
+### 10.2 최종 선택
+
+Issue #11의 최종 전략은 `CONDITIONAL_ATOMIC_UPDATE`로 선택한다.
+
+현재 Phase 1의 핵심 재고 불변식은 특정 SKU의 재고가 요청 수량 이상일 때 차감하는 비교적 단순한 조건이다. Conditional Atomic Update는 재고 확인, 조건 검사, 차감을 하나의 DB UPDATE에서 수행해 애플리케이션 레벨 read-modify-write 경쟁을 제거한다. 이에 따라 `NO_LOCK`에서 나타난 Lost Update가 발생하지 않았다.
+
+또한 단일 JVM lock에 의존하는 `SYNCHRONIZED`와 달리 다중 application instance에서도 동일한 DB 정합성 방식이 적용된다. `OPTIMISTIC_NO_RETRY`에서 높은 contention 중 나타난 애플리케이션 수준의 version conflict도 이번 전략에서는 발생하지 않았다. `PESSIMISTIC_LOCK`의 `SELECT FOR UPDATE` 후 수정 흐름과 비교하면, 현재의 단순한 불변식은 조건부 UPDATE 하나로 처리할 수 있어 구조가 더 단순하다.
+
+이번 로컬 reference benchmark에서는 정합성을 유지한 전략 중 평균 elapsed가 가장 짧고 attempted/success TPS가 가장 높았다. 그러나 TPS가 가장 높다는 이유만으로 선택한 것은 아니며, 이 결과를 절대적인 성능 우위로 일반화하지 않는다. 현재와 같이 단순한 재고 조건부 차감이 핵심인 요구사항에서는 DB의 조건부 원자 UPDATE를 이용해 정합성을 보장하는 방식이 구현 복잡도와 동시성 제어 측면에서 가장 적합하다고 판단했다.
+
+다만 요구사항이 여러 row의 상태를 함께 잠근 뒤 검증해야 하는 형태로 복잡해지면 `PESSIMISTIC_LOCK`이 더 적절할 수 있다. Conditional Atomic Update 역시 InnoDB row lock 대기와 다중 SKU 갱신 순서에 따른 deadlock 가능성이 있으므로, 운영 환경 적용 전 lock wait와 deadlock 및 retry 정책을 별도로 검증해야 한다.
