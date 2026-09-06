@@ -78,7 +78,7 @@ class OrderDomainTest {
 
     @Test
     void 정상_주문을_생성한다() {
-        Member member = new Member("테스트 회원");
+        Member member = new Member("order@example.com", null, "테스트 회원");
         OrderItem item = createOrderItem("SKU-001", "기본 옵션", "10000", 1);
 
         Order order = new Order(member, List.of(item));
@@ -100,14 +100,14 @@ class OrderDomainTest {
 
     @Test
     void 주문_항목은_하나_이상이어야_한다() {
-        assertThatThrownBy(() -> new Order(new Member("테스트 회원"), List.of()))
+        assertThatThrownBy(() -> new Order(new Member("order@example.com", null, "테스트 회원"), List.of()))
                 .isInstanceOf(InvalidOrderException.class)
                 .hasMessage("주문 항목은 하나 이상이어야 합니다.");
     }
 
     @Test
     void 주문_항목이_null이면_주문을_생성할_수_없다() {
-        assertThatThrownBy(() -> new Order(new Member("테스트 회원"), null))
+        assertThatThrownBy(() -> new Order(new Member("order@example.com", null, "테스트 회원"), null))
                 .isInstanceOf(InvalidOrderException.class)
                 .hasMessage("주문 항목은 하나 이상이어야 합니다.");
     }
@@ -122,7 +122,7 @@ class OrderDomainTest {
         );
 
         Order order = new Order(
-                new Member("테스트 회원"),
+                new Member("order@example.com", null, "테스트 회원"),
                 List.of(first, second)
         );
 
@@ -165,7 +165,7 @@ class OrderDomainTest {
                 "SKU-001", "기본 옵션", "10000", 1
         );
 
-        Order order = new Order(new Member("테스트 회원"), List.of(item));
+        Order order = new Order(new Member("order@example.com", null, "테스트 회원"), List.of(item));
 
         assertThat(item.getOrder()).isSameAs(order);
         assertThat(order.getItems()).containsExactly(item);
@@ -205,7 +205,7 @@ class OrderDomainTest {
 
     private Order createOrder() {
         return new Order(
-                new Member("테스트 회원"),
+                new Member("order@example.com", null, "테스트 회원"),
                 List.of(createOrderItem(
                         "SKU-001", "기본 옵션", "10000", 1
                 ))

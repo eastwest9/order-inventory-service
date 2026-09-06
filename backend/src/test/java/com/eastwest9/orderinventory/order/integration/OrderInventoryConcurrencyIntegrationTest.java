@@ -90,7 +90,7 @@ class OrderInventoryConcurrencyIntegrationTest {
         // Given: fixture 트랜잭션은 worker 시작 전에 커밋된다.
         int initialQuantity = 20;
         int requestCount = 50;
-        Long memberId = memberRepository.save(new Member("동시 주문 테스트 회원")).getId();
+        Long memberId = memberRepository.save(new Member(UUID.randomUUID() + "@example.com", null, "동시 주문 테스트 회원")).getId();
         Long variantId = createVariant(initialQuantity);
         Queue<Long> successfulOrderIds = new ConcurrentLinkedQueue<>();
         Queue<InsufficientInventoryException> insufficientFailures = new ConcurrentLinkedQueue<>();
@@ -175,7 +175,7 @@ class OrderInventoryConcurrencyIntegrationTest {
     @Test
     void 재고가_부족하면_주문과_이력을_롤백하고_가용_수량을_반환한다() {
         // Given
-        Long memberId = memberRepository.save(new Member("재고 부족 테스트 회원")).getId();
+        Long memberId = memberRepository.save(new Member(UUID.randomUUID() + "@example.com", null, "재고 부족 테스트 회원")).getId();
         Long variantId = createVariant(1);
         OrderCreateRequestDto request = new OrderCreateRequestDto(memberId, List.of(new OrderItemCreateRequestDto(variantId, 2)));
 
@@ -193,7 +193,7 @@ class OrderInventoryConcurrencyIntegrationTest {
     @Test
     void 두번째_SKU_차감이_실패하면_앞선_차감과_주문_전체를_롤백한다() {
         // Given: 첫 SKU는 차감에 성공하고 다음 SKU에서 재고 부족이 발생한다.
-        Long memberId = memberRepository.save(new Member("전체 롤백 테스트 회원")).getId();
+        Long memberId = memberRepository.save(new Member(UUID.randomUUID() + "@example.com", null, "전체 롤백 테스트 회원")).getId();
         Long firstVariantId = createVariant(3);
         Long secondVariantId = createVariant(1);
         OrderCreateRequestDto request = new OrderCreateRequestDto(memberId, List.of(new OrderItemCreateRequestDto(firstVariantId, 1), new OrderItemCreateRequestDto(secondVariantId, 2)));
