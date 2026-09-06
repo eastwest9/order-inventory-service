@@ -9,6 +9,9 @@ import com.eastwest9.orderinventory.member.domain.SocialAccount;
 import com.eastwest9.orderinventory.member.domain.SocialProvider;
 import com.eastwest9.orderinventory.member.repository.MemberRepository;
 import com.eastwest9.orderinventory.member.repository.SocialAccountRepository;
+import com.eastwest9.orderinventory.member.dto.MemberCreateRequestDto;
+import com.eastwest9.orderinventory.member.dto.MemberResponseDto;
+import com.eastwest9.orderinventory.member.service.MemberService;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -17,6 +20,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -50,6 +54,41 @@ class MemberRepositoryIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private MemberService memberService;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
+    @Test
+    void LOCAL_회원가입은_정규화된_이메일과_BCrypt_비밀번호를_저장한다() {
+        String localPart = UUID.randomUUID().toString();
+        String normalizedEmail = localPart + "@example.com";
+        String rawPassword = "password123!";
+
+        MemberResponseDto response = memberService.createMember(new MemberCreateRequestDto(" " + localPart.toUpperCase() + "@Example.COM ", rawPassword, "로컬 회원"));
+        Member saved = memberRepository.findByEmail(normalizedEmail).orElseThrow();
+
+        assertThat(response.memberId()).isEqualTo(saved.getId());
+        assertThat(response.email()).isEqualTo(normalizedEmail);
+        assertThat(response.role()).isEqualTo(MemberRole.USER);
+        assertThat(saved.getPassword()).isNotEqualTo(rawPassword).startsWith("$2");
+        assertThat(passwordEncoder.matches(rawPassword, saved.getPassword())).isTrue();
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM social_account WHERE member_id = ?", Integer.class, saved.getId())).isZero();
+    }
+
+    @Test
+    void 이메일_대소문자와_공백을_정규화해_중복_가입을_거부한다() {
+        String localPart = UUID.randomUUID().toString();
+        String normalizedEmail = localPart + "@example.com";
+        memberService.createMember(new MemberCreateRequestDto(normalizedEmail, "password123!", "첫 회원"));
+
+        assertThatThrownBy(() -> memberService.createMember(new MemberCreateRequestDto(" " + localPart.toUpperCase() + "@Example.COM ", "another-password", "둘째 회원")))
+                .isInstanceOf(com.eastwest9.orderinventory.member.exception.DuplicateMemberEmailException.class);
+
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM member WHERE email = ?", Integer.class, normalizedEmail)).isEqualTo(1);
+    }
 
     @Test
     void 회원을_저장하고_이메일로_조회한다() {

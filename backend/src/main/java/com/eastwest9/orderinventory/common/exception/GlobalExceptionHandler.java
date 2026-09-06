@@ -5,6 +5,7 @@ import com.eastwest9.orderinventory.inventory.exception.InsufficientInventoryExc
 import com.eastwest9.orderinventory.inventory.exception.InvalidInventoryQuantityException;
 import com.eastwest9.orderinventory.inventory.exception.InventoryNotFoundException;
 import com.eastwest9.orderinventory.member.exception.MemberNotFoundException;
+import com.eastwest9.orderinventory.member.exception.DuplicateMemberEmailException;
 import com.eastwest9.orderinventory.order.exception.InvalidOrderException;
 import com.eastwest9.orderinventory.order.exception.OrderAlreadyCanceledException;
 import com.eastwest9.orderinventory.order.exception.OrderNotFoundException;
@@ -21,6 +22,16 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    @ExceptionHandler(DuplicateMemberEmailException.class)
+    public ResponseEntity<ErrorResponseDto> handleDuplicateMemberEmail(DuplicateMemberEmailException exception) {
+        ErrorResponseDto response = ErrorResponseDto.of(
+                "MEMBER_EMAIL_ALREADY_EXISTS",
+                exception.getMessage()
+        );
+
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+    }
 
     @ExceptionHandler(MemberNotFoundException.class)
     public ResponseEntity<ErrorResponseDto> handleMemberNotFound(MemberNotFoundException exception) {
