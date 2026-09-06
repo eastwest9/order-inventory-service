@@ -11,6 +11,14 @@ import org.junit.jupiter.params.provider.ValueSource;
 class MemberTest {
 
     @Test
+    void 회원가입_요청은_toString에_비밀번호를_노출하지_않는다() {
+        com.eastwest9.orderinventory.member.dto.MemberCreateRequestDto request =
+                new com.eastwest9.orderinventory.member.dto.MemberCreateRequestDto("member@example.com", "password123!", "회원");
+
+        assertThat(request.toString()).doesNotContain("password123!").contains("[PROTECTED]");
+    }
+
+    @Test
     void 회원을_기본_USER_권한으로_생성한다() {
         Member member = new Member("member@example.com", "test-password", "테스트 회원");
 
